@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EpicMoney – Регистрация</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    body { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--bg-dark); }
+    .auth-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 40px; width: 100%; max-width: 400px; }
+    .auth-card h1 { text-align: center; color: var(--accent); font-size: 1.8rem; margin-bottom: 8px; }
+    .auth-card p.subtitle { text-align: center; color: var(--text-muted); margin-bottom: 28px; font-size: 0.9rem; }
+    .form-group { margin-bottom: 18px; }
+    .form-group label { display: block; color: var(--text-muted); font-size: 0.85rem; margin-bottom: 6px; }
+    .form-group input { width: 100%; padding: 12px 14px; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.95rem; box-sizing: border-box; transition: border-color 0.2s; }
+    .form-group input:focus { outline: none; border-color: var(--accent); }
+    .btn-full { width: 100%; padding: 13px; font-size: 1rem; }
+    .auth-footer { text-align: center; margin-top: 20px; color: var(--text-muted); font-size: 0.9rem; }
+    .auth-footer a { color: var(--accent); text-decoration: none; }
+    .error-msg { background: rgba(255,80,80,0.15); border: 1px solid #ff5050; border-radius: 8px; padding: 10px 14px; color: #ff8080; font-size: 0.9rem; margin-bottom: 16px; display: none; }
+    .success-msg { background: rgba(80,255,120,0.15); border: 1px solid #50ff78; border-radius: 8px; padding: 10px 14px; color: #80ffaa; font-size: 0.9rem; margin-bottom: 16px; display: none; }
+    .logo { text-align: center; font-size: 2.4rem; margin-bottom: 16px; }
+    .hint { color: var(--text-muted); font-size: 0.78rem; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <div class="auth-card">
+    <div class="logo">🎰</div>
+    <h1>EpicMoney</h1>
+    <p class="subtitle">Создайте аккаунт и получите 100 монет</p>
+    <div id="errorMsg" class="error-msg"></div>
+    <div id="successMsg" class="success-msg"></div>
+    <form id="regForm">
+      <div class="form-group">
+        <label>Имя пользователя</label>
+        <input type="text" id="username" placeholder="Минимум 3 символа" autocomplete="username" required minlength="3" />
+      </div>
+      <div class="form-group">
+        <label>Пароль</label>
+        <input type="password" id="password" placeholder="Минимум 6 символов" autocomplete="new-password" required minlength="6" />
+        <div class="hint">Не менее 6 символов</div>
+      </div>
+      <div class="form-group">
+        <label>Реферальный код <span style="color:var(--text-muted)">(необязательно)</span></label>
+        <input type="text" id="referralCode" placeholder="Введите код друга" />
+        <div class="hint">+100 монет вам и другу</div>
+      </div>
+      <button type="submit" class="btn btn-accent btn-full" id="regBtn">Зарегистрироваться</button>
+    </form>
+    <div class="auth-footer">
+      Уже есть аккаунт? <a href="login.html">Войти</a>
+    </div>
+  </div>
+  <script>
+    if (localStorage.getItem('token')) window.location.href = 'index.html';
+
+    document.getElementById('regForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('regBtn');
+      const errEl = document.getElementById('errorMsg');
+      const sucEl = document.getElementById('successMsg');
+      errEl.style.display = 'none';
+      sucEl.style.display = 'none';
+      btn.textContent = 'Регистрация...';
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: document.getElementById('username').value.trim(),
+            password: document.getElementById('password').value,
+            referralCode: document.getElementById('referralCode').value.trim() || undefined
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Ошибка регистрации');
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        sucEl.textContent = 'Аккаунт создан! Перенаправляем...';
+        sucEl.style.display = 'block';
+        setTimeout(() => window.location.href = 'index.html', 1200);
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+        btn.textContent = 'Зарегистрироваться';
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
