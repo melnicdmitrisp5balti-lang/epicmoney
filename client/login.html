@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EpicMoney – Войти</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    body { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--bg-dark); }
+    .auth-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 40px; width: 100%; max-width: 400px; }
+    .auth-card h1 { text-align: center; color: var(--accent); font-size: 1.8rem; margin-bottom: 8px; }
+    .auth-card p.subtitle { text-align: center; color: var(--text-muted); margin-bottom: 28px; font-size: 0.9rem; }
+    .form-group { margin-bottom: 18px; }
+    .form-group label { display: block; color: var(--text-muted); font-size: 0.85rem; margin-bottom: 6px; }
+    .form-group input { width: 100%; padding: 12px 14px; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.95rem; box-sizing: border-box; transition: border-color 0.2s; }
+    .form-group input:focus { outline: none; border-color: var(--accent); }
+    .btn-full { width: 100%; padding: 13px; font-size: 1rem; }
+    .auth-footer { text-align: center; margin-top: 20px; color: var(--text-muted); font-size: 0.9rem; }
+    .auth-footer a { color: var(--accent); text-decoration: none; }
+    .error-msg { background: rgba(255,80,80,0.15); border: 1px solid #ff5050; border-radius: 8px; padding: 10px 14px; color: #ff8080; font-size: 0.9rem; margin-bottom: 16px; display: none; }
+    .logo { text-align: center; font-size: 2.4rem; margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+  <div class="auth-card">
+    <div class="logo">🎰</div>
+    <h1>EpicMoney</h1>
+    <p class="subtitle">Войдите в свой аккаунт</p>
+    <div id="errorMsg" class="error-msg"></div>
+    <form id="loginForm">
+      <div class="form-group">
+        <label>Имя пользователя</label>
+        <input type="text" id="username" placeholder="Введите ник" autocomplete="username" required />
+      </div>
+      <div class="form-group">
+        <label>Пароль</label>
+        <input type="password" id="password" placeholder="Введите пароль" autocomplete="current-password" required />
+      </div>
+      <button type="submit" class="btn btn-accent btn-full" id="loginBtn">Войти</button>
+    </form>
+    <div class="auth-footer">
+      Нет аккаунта? <a href="register.html">Зарегистрироваться</a>
+    </div>
+  </div>
+  <script>
+    // Redirect if already logged in
+    if (localStorage.getItem('token')) window.location.href = 'index.html';
+
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('loginBtn');
+      const errEl = document.getElementById('errorMsg');
+      errEl.style.display = 'none';
+      btn.textContent = 'Входим...';
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: document.getElementById('username').value.trim(),
+            password: document.getElementById('password').value
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Ошибка входа');
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        window.location.href = 'index.html';
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+        btn.textContent = 'Войти';
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

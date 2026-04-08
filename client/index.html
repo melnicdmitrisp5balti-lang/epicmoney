@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EpicMoney – Игровая платформа</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<!-- Toast container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- Winner overlay -->
+<div class="winner-overlay" id="winnerOverlay">
+  <div class="winner-card">
+    <div class="winner-emoji">🏆</div>
+    <div class="winner-title">Победитель</div>
+    <div class="winner-name" id="winnerName">-</div>
+    <div class="winner-amount" id="winnerAmount">-</div>
+    <button class="btn btn-accent mt-16" onclick="document.getElementById('winnerOverlay').classList.remove('visible')">Закрыть</button>
+  </div>
+</div>
+
+<div class="app-layout" id="appLayout">
+
+  <!-- ═══ LEFT SIDEBAR ══════════════════════════════════════ -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="user-avatar" id="sidebarAvatar">?</div>
+      <div class="user-name" id="sidebarUsername">Гость</div>
+      <div class="user-balance" id="sidebarCoins">0 монет</div>
+      <div class="user-mdl" id="sidebarMdl">0.0 MDL</div>
+    </div>
+
+    <div class="sidebar-actions">
+      <button class="btn btn-accent btn-sm" onclick="showSection('deposit')">💳 Пополнить</button>
+      <button class="btn btn-outline btn-sm" onclick="showSection('withdraw')">💸 Вывести</button>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-item active" data-section="play" onclick="showSection('play')">
+        <span class="nav-icon">🎮</span><span>Играть</span>
+      </div>
+      <div class="nav-item" data-section="profile" onclick="showSection('profile')">
+        <span class="nav-icon">👤</span><span>Профиль</span>
+      </div>
+      <div class="nav-item" data-section="transfer" onclick="showSection('transfer')">
+        <span class="nav-icon">🔄</span><span>Перевод средств</span>
+      </div>
+      <div class="nav-item" data-section="free" onclick="showSection('free')">
+        <span class="nav-icon">🎁</span><span>Бесплатные монеты</span>
+      </div>
+      <div class="nav-item" data-section="referral" onclick="showSection('referral')">
+        <span class="nav-icon">🤝</span><span>Реферальная программа</span>
+      </div>
+      <div class="nav-item" data-section="leaderboard" onclick="showSection('leaderboard')">
+        <span class="nav-icon">🏆</span><span>Топ игроков</span>
+      </div>
+      <div class="nav-item" data-section="payouts" onclick="showSection('payouts')">
+        <span class="nav-icon">💰</span><span>Мои выплаты</span>
+      </div>
+      <div class="nav-item" data-section="history" onclick="showSection('history')">
+        <span class="nav-icon">📋</span><span>История выводов</span>
+      </div>
+      <div class="nav-item" data-section="promo" onclick="showSection('promo')">
+        <span class="nav-icon">🎟️</span><span>Промокод</span>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <button class="logout-btn" onclick="logout()">🚪 Выйти</button>
+    </div>
+  </aside>
+
+  <!-- ═══ MAIN CONTENT ══════════════════════════════════════ -->
+  <main class="main-content">
+
+    <!-- ── PLAY section ───────────────────── -->
+    <div class="section active" id="section-play">
+      <div class="game-tabs">
+        <button class="game-tab active" data-game="jackpot" onclick="switchGame('jackpot')">🎰 Jackpot</button>
+        <button class="game-tab" data-game="battle" onclick="switchGame('battle')">⚔️ Battle Game</button>
+        <button class="game-tab" data-game="fast" onclick="switchGame('fast')">⚡ Fast Game</button>
+        <button class="game-tab" data-game="1vs1" onclick="switchGame('1vs1')">🥊 1vs1</button>
+      </div>
+
+      <!-- ────── JACKPOT ──────────────────── -->
+      <div class="game-view active" id="game-jackpot">
+        <div class="game-card">
+          <div class="game-card-header">
+            <div>
+              <div class="game-id" id="jpGameId">ID: -</div>
+              <div class="game-pot"><span>Банк: </span><span id="jpPot">0</span> монет</div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+              <div class="game-status status-waiting" id="jpStatus">Ожидание</div>
+              <div class="game-timer">⏱ <span class="timer-val" id="jpTimer">--</span></div>
+            </div>
+          </div>
+
+          <!-- Jackpot visual bar -->
+          <div style="margin-bottom:10px;">
+            <div class="jackpot-spin-wrapper" id="jpSpinWrapper" style="position:relative;overflow:hidden;border-radius:10px;border:1px solid var(--border);height:54px;">
+              <div class="jackpot-track" id="jpTrack" style="display:flex;height:100%;"></div>
+              <div class="jackpot-indicator"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Players -->
+        <div class="game-card">
+          <div style="font-weight:700;margin-bottom:10px;">Игроки</div>
+          <div class="players-list" id="jpPlayers">
+            <div class="empty-state"><div class="empty-icon">🎰</div>Ещё нет ставок</div>
+          </div>
+        </div>
+
+        <!-- Bet form -->
+        <div class="bet-form" id="jpBetForm">
+          <div class="bet-form-row">
+            <div class="bet-input-group">
+              <label>Ставка (MDL) — 1 MDL = 100 билетов</label>
+              <input type="number" class="bet-input" id="jpBetAmount" placeholder="Введите сумму в MDL" min="0.1" step="0.1" />
+            </div>
+            <button class="btn btn-accent" onclick="placeJackpotBet()">🎰 Сделать ставку</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ────── BATTLE GAME ──────────────── -->
+      <div class="game-view" id="game-battle">
+        <div class="game-card">
+          <div class="game-card-header">
+            <div>
+              <div class="game-id" id="bgGameId">ID: -</div>
+              <div class="game-pot"><span>Банк: </span><span id="bgPot">0</span> монет</div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+              <div class="game-status status-waiting" id="bgStatus">Ожидание</div>
+              <div class="game-timer">⏱ <span class="timer-val" id="bgTimer">--</span></div>
+            </div>
+          </div>
+
+          <!-- Teams bar -->
+          <div class="battle-teams-bar" id="bgTeamsBar">
+            <div class="battle-blue-bar" id="bgBlueBar" style="width:50%;">Синие 0</div>
+            <div class="battle-red-bar" id="bgRedBar" style="width:50%;">Красные 0</div>
+          </div>
+
+          <div class="players-list" id="bgPlayers">
+            <div class="empty-state"><div class="empty-icon">⚔️</div>Ещё нет игроков</div>
+          </div>
+        </div>
+
+        <div class="bet-form" id="bgBetForm">
+          <div style="font-weight:600;margin-bottom:8px;">Выберите сторону</div>
+          <div class="battle-sides">
+            <div class="side-btn" id="sideBlue" onclick="selectSide('blue')">🔵 Синие</div>
+            <div class="side-btn" id="sideRed" onclick="selectSide('red')">🔴 Красные</div>
+          </div>
+          <div class="bet-form-row">
+            <div class="bet-input-group">
+              <label>Ставка (MDL)</label>
+              <input type="number" class="bet-input" id="bgBetAmount" placeholder="Введите сумму" min="0.1" step="0.1" />
+            </div>
+            <button class="btn btn-accent" onclick="placeBattleBet()">⚔️ Сделать ставку</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ────── FAST GAME ────────────────── -->
+      <div class="game-view" id="game-fast">
+        <div class="game-card">
+          <div style="font-weight:700;margin-bottom:14px;font-size:1rem;">⚡ Быстрые игры (макс. 3 игрока)</div>
+          <div class="bet-form" style="margin-bottom:16px;">
+            <div class="bet-form-row">
+              <div class="bet-input-group">
+                <label>Ставка (MDL) — создать новую игру</label>
+                <input type="number" class="bet-input" id="fgCreateAmount" placeholder="Введите сумму" min="0.1" step="0.1" />
+              </div>
+              <button class="btn btn-accent" onclick="createFastGame()">➕ Создать</button>
+            </div>
+          </div>
+
+          <div style="font-weight:600;margin-bottom:10px;color:var(--text-muted);">Доступные игры</div>
+          <div class="rooms-grid" id="fgRooms">
+            <div class="empty-state"><div class="empty-icon">⚡</div>Нет активных игр</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ────── 1VS1 ─────────────────────── -->
+      <div class="game-view" id="game-1vs1">
+        <div class="game-card">
+          <div style="font-weight:700;margin-bottom:14px;font-size:1rem;">🥊 Дуэли 1 vs 1</div>
+          <div class="bet-form" style="margin-bottom:16px;">
+            <div class="bet-form-row">
+              <div class="bet-input-group">
+                <label>Ставка (MDL) — создать дуэль</label>
+                <input type="number" class="bet-input" id="ovCreateAmount" placeholder="Введите сумму" min="0.1" step="0.1" />
+              </div>
+              <button class="btn btn-accent" onclick="create1vs1()">🥊 Создать</button>
+            </div>
+          </div>
+
+          <div style="font-weight:600;margin-bottom:10px;color:var(--text-muted);">Активные дуэли</div>
+          <div class="rooms-grid" id="ovRooms">
+            <div class="empty-state"><div class="empty-icon">🥊</div>Нет активных дуэлей</div>
+          </div>
+        </div>
+      </div>
+    </div><!-- /#section-play -->
+
+    <!-- ── PROFILE section ─────────────────── -->
+    <div class="section" id="section-profile">
+      <div class="page-title">👤 Профиль</div>
+      <div class="page-card">
+        <div class="info-grid">
+          <div class="info-item"><label>Никнейм</label><div class="val" id="profUsername">-</div></div>
+          <div class="info-item"><label>Монеты</label><div class="val" id="profCoins">-</div></div>
+          <div class="info-item"><label>Баланс (MDL)</label><div class="val" id="profMdl">-</div></div>
+          <div class="info-item"><label>Игр сыграно</label><div class="val" id="profGames">-</div></div>
+          <div class="info-item"><label>Побед</label><div class="val" id="profWins">-</div></div>
+          <div class="info-item"><label>Общий выигрыш</label><div class="val" id="profWinnings">-</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── TRANSFER section ──────────────── -->
+    <div class="section" id="section-transfer">
+      <div class="page-title">🔄 Перевод средств</div>
+      <div class="page-card form-section">
+        <p class="text-muted" style="margin-bottom:16px;font-size:0.9rem;">Перевод монет другому игроку (функция в разработке)</p>
+        <div class="form-group">
+          <label>Никнейм получателя</label>
+          <input type="text" id="transferTo" placeholder="Введите никнейм" />
+        </div>
+        <div class="form-group">
+          <label>Сумма (монеты)</label>
+          <input type="number" id="transferAmount" placeholder="Введите сумму" min="1" />
+        </div>
+        <button class="btn btn-accent" onclick="showToast('Функция перевода в разработке', 'info')">Перевести</button>
+      </div>
+    </div>
+
+    <!-- ── FREE COINS section ───────────────── -->
+    <div class="section" id="section-free">
+      <div class="page-title">🎁 Бесплатные монеты</div>
+      <div class="page-card" style="max-width:420px;">
+        <p style="color:var(--text-muted);margin-bottom:18px;font-size:0.9rem;">Получите бесплатные монеты для старта!</p>
+        <div style="font-size:2rem;text-align:center;margin:20px 0;">🎁 +50 монет</div>
+        <button class="btn btn-accent" style="width:100%;" onclick="getFreeCoins()">Получить монеты</button>
+      </div>
+    </div>
+
+    <!-- ── REFERRAL section ────────────────── -->
+    <div class="section" id="section-referral">
+      <div class="page-title">🤝 Реферальная программа</div>
+      <div class="page-card" style="max-width:480px;">
+        <p style="color:var(--text-muted);margin-bottom:18px;font-size:0.9rem;">Пригласите друга и получите <strong style="color:var(--accent);">+100 монет</strong> каждый!</p>
+        <div style="font-weight:600;margin-bottom:8px;">Ваш реферальный код</div>
+        <div class="referral-box">
+          <div class="referral-code" id="refCode">-</div>
+          <button class="btn btn-outline btn-sm" onclick="copyRefCode()">📋 Копировать</button>
+        </div>
+        <div class="divider"></div>
+        <p style="color:var(--text-muted);font-size:0.85rem;">Ссылка для приглашения:<br>
+          <span class="text-accent" id="refLink">-</span>
+        </p>
+      </div>
+    </div>
+
+    <!-- ── LEADERBOARD section ────────────── -->
+    <div class="section" id="section-leaderboard">
+      <div class="page-title">🏆 Топ игроков</div>
+      <div class="page-card" style="overflow-x:auto;">
+        <table class="leaderboard-table" id="leaderboardTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Игрок</th>
+              <th>Монеты</th>
+              <th>Побед</th>
+              <th>Выигрыш</th>
+            </tr>
+          </thead>
+          <tbody id="leaderboardBody">
+            <tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:20px;">Загрузка...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── PAYOUTS section ────────────────── -->
+    <div class="section" id="section-payouts">
+      <div class="page-title">💰 Мои выплаты</div>
+      <div class="page-card">
+        <div id="payoutsContent">
+          <div class="empty-state"><div class="empty-icon">💰</div>Нет данных о выплатах</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── HISTORY section ─────────────────── -->
+    <div class="section" id="section-history">
+      <div class="page-title">📋 История игр</div>
+      <div class="page-card" style="overflow-x:auto;">
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>ID игры</th>
+              <th>Тип</th>
+              <th>Ставка</th>
+              <th>Результат</th>
+              <th>Дата</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody">
+            <tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:20px;">Загрузка...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── PROMO section ───────────────────── -->
+    <div class="section" id="section-promo">
+      <div class="page-title">🎟️ Промокод</div>
+      <div class="page-card form-section">
+        <p style="color:var(--text-muted);margin-bottom:16px;font-size:0.9rem;">Введите промокод для получения бонусных монет</p>
+        <div class="form-group">
+          <label>Промокод</label>
+          <input type="text" id="promoInput" placeholder="Введите код" style="text-transform:uppercase;" />
+        </div>
+        <button class="btn btn-accent" onclick="applyPromo()">Применить</button>
+        <p style="color:var(--text-muted);font-size:0.8rem;margin-top:12px;">Доступные коды: EPIC100 (+100 монет), WELCOME50 (+50 монет), BONUS200 (+200 монет)</p>
+      </div>
+    </div>
+
+    <!-- ── DEPOSIT section ────────────────── -->
+    <div class="section" id="section-deposit">
+      <div class="page-title">💳 Пополнить баланс</div>
+      <div class="page-card form-section">
+        <p style="color:var(--text-muted);margin-bottom:16px;font-size:0.9rem;">Пополнение баланса (демо-режим, монеты добавляются автоматически)</p>
+        <div class="form-group">
+          <label>Сумма (MDL)</label>
+          <input type="number" id="depositAmount" placeholder="Введите сумму" min="10" step="10" />
+        </div>
+        <button class="btn btn-accent" onclick="depositCoins()">Пополнить</button>
+      </div>
+    </div>
+
+    <!-- ── WITHDRAW section ───────────────── -->
+    <div class="section" id="section-withdraw">
+      <div class="page-title">💸 Вывести средства</div>
+      <div class="page-card form-section">
+        <p style="color:var(--text-muted);margin-bottom:16px;font-size:0.9rem;">Вывод средств (в разработке)</p>
+        <div class="form-group">
+          <label>Сумма (MDL)</label>
+          <input type="number" id="withdrawAmount" placeholder="Введите сумму" min="10" step="10" />
+        </div>
+        <div class="form-group">
+          <label>Реквизиты</label>
+          <input type="text" id="withdrawDetails" placeholder="Номер карты / счёта" />
+        </div>
+        <button class="btn btn-outline" onclick="showToast('Вывод средств в разработке', 'info')">Подать заявку</button>
+      </div>
+    </div>
+
+  </main><!-- /.main-content -->
+
+  <!-- ═══ CHAT PANEL ════════════════════════════════════════ -->
+  <aside class="chat-panel">
+    <div class="chat-header">
+      <div class="online-dot"></div>
+      Чат
+    </div>
+    <div class="chat-messages" id="chatMessages"></div>
+    <div class="chat-input-area">
+      <input type="text" class="chat-input" id="chatInput" placeholder="Написать сообщение..." maxlength="500"
+             onkeydown="if(event.key==='Enter') sendChatMessage()" />
+      <button class="btn btn-accent chat-send" onclick="sendChatMessage()">➤</button>
+    </div>
+  </aside>
+
+</div><!-- /.app-layout -->
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
