@@ -19,6 +19,8 @@
     .auth-footer a { color: var(--accent); text-decoration: none; }
     .error-msg { background: rgba(255,80,80,0.15); border: 1px solid #ff5050; border-radius: 8px; padding: 10px 14px; color: #ff8080; font-size: 0.9rem; margin-bottom: 16px; display: none; }
     .logo { text-align: center; font-size: 2.4rem; margin-bottom: 16px; }
+    .demo-hint { text-align: center; color: var(--text-muted); font-size: 0.8rem; margin-top: 12px; background: rgba(255,215,0,0.06); border: 1px solid rgba(255,215,0,0.15); border-radius: 8px; padding: 10px; }
+    .demo-hint strong { color: var(--accent); }
   </style>
 </head>
 <body>
@@ -38,42 +40,67 @@
       </div>
       <button type="submit" class="btn btn-accent btn-full" id="loginBtn">Войти</button>
     </form>
+    <div class="demo-hint">
+      Демо-аккаунт: <strong>demo</strong> / <strong>demo123</strong>
+    </div>
     <div class="auth-footer">
       Нет аккаунта? <a href="register.html">Зарегистрироваться</a>
     </div>
   </div>
   <script>
     // Redirect if already logged in
-    if (localStorage.getItem('token')) window.location.href = 'index.html';
+    if (localStorage.getItem('em_current_uid')) window.location.href = 'index.html';
 
-    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    // WARNING: This is a weak hash for local demo purposes only.
+    // Use a proper server-side solution with bcrypt for real authentication.
+    function hashPass(str) {
+      let h = 5381;
+      for (let i = 0; i < str.length; i++) h = (((h << 5) + h) ^ str.charCodeAt(i)) >>> 0;
+      return h.toString(16);
+    }
+
+    function genId() {
+      return Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    }
+
+    // Ensure demo account exists
+    (function ensureDemo() {
+      const users = JSON.parse(localStorage.getItem('em_users') || '[]');
+      if (!users.find(u => u.username === 'demo')) {
+        users.push({
+          id: 'demo-user',
+          username: 'demo',
+          passwordHash: hashPass('demo123'),
+          coins: 1000,
+          gamesPlayed: 0,
+          gamesWon: 0,
+          totalWinnings: 0,
+          referralCode: 'DEMO0000',
+          createdAt: Date.now()
+        });
+        localStorage.setItem('em_users', JSON.stringify(users));
+      }
+    })();
+
+    document.getElementById('loginForm').addEventListener('submit', (e) => {
       e.preventDefault();
-      const btn = document.getElementById('loginBtn');
       const errEl = document.getElementById('errorMsg');
       errEl.style.display = 'none';
-      btn.textContent = 'Входим...';
-      btn.disabled = true;
 
-      try {
-        const res = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            username: document.getElementById('username').value.trim(),
-            password: document.getElementById('password').value
-          })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Ошибка входа');
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        window.location.href = 'index.html';
-      } catch (err) {
-        errEl.textContent = err.message;
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+
+      const users = JSON.parse(localStorage.getItem('em_users') || '[]');
+      const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
+
+      if (!user || user.passwordHash !== hashPass(password)) {
+        errEl.textContent = 'Неверный логин или пароль';
         errEl.style.display = 'block';
-        btn.textContent = 'Войти';
-        btn.disabled = false;
+        return;
       }
+
+      localStorage.setItem('em_current_uid', user.id);
+      window.location.href = 'index.html';
     });
   </script>
 </body>
