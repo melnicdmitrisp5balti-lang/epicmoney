@@ -90,8 +90,8 @@
         <div class="game-card">
           <div class="game-card-header">
             <div>
-              <div class="game-id" id="jpGameId">ID: -</div>
-              <div class="game-pot"><span>Банк: </span><span id="jpPot">0</span> монет</div>
+              <div class="game-id" id="jpGameId">GAME #-</div>
+              <div class="game-pot"><span>Jackpot: </span><span id="jpPot">0</span> 🪙</div>
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
               <div class="game-status status-waiting" id="jpStatus">Ожидание</div>
@@ -120,10 +120,10 @@
         <div class="bet-form" id="jpBetForm">
           <div class="bet-form-row">
             <div class="bet-input-group">
-              <label>Ставка (MDL) — 1 MDL = 100 билетов</label>
-              <input type="number" class="bet-input" id="jpBetAmount" placeholder="Введите сумму в MDL" min="0.1" step="0.1" />
+              <label>Ставка (🪙 монет)</label>
+              <input type="number" class="bet-input" id="jpBetAmount" placeholder="Введите сумму в монетах" min="1" step="1" />
             </div>
-            <button class="btn btn-accent" onclick="placeJackpotBet()">🎰 Сделать ставку</button>
+            <button class="btn btn-accent" onclick="placeJackpotBet()">▶ Сделать ставку</button>
           </div>
         </div>
       </div>
@@ -133,8 +133,8 @@
         <div class="game-card">
           <div class="game-card-header">
             <div>
-              <div class="game-id" id="bgGameId">ID: -</div>
-              <div class="game-pot"><span>Банк: </span><span id="bgPot">0</span> монет</div>
+              <div class="game-id" id="bgGameId">GAME #-</div>
+              <div class="game-pot"><span>Банк: </span><span id="bgPot">0</span> 🪙</div>
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
               <div class="game-status status-waiting" id="bgStatus">Ожидание</div>
@@ -161,8 +161,8 @@
           </div>
           <div class="bet-form-row">
             <div class="bet-input-group">
-              <label>Ставка (MDL)</label>
-              <input type="number" class="bet-input" id="bgBetAmount" placeholder="Введите сумму" min="0.1" step="0.1" />
+              <label>Ставка (🪙 монет)</label>
+              <input type="number" class="bet-input" id="bgBetAmount" placeholder="Введите сумму" min="1" step="1" />
             </div>
             <button class="btn btn-accent" onclick="placeBattleBet()">⚔️ Сделать ставку</button>
           </div>
@@ -176,8 +176,8 @@
           <div class="bet-form" style="margin-bottom:16px;">
             <div class="bet-form-row">
               <div class="bet-input-group">
-                <label>Ставка (MDL) — создать новую игру</label>
-                <input type="number" class="bet-input" id="fgCreateAmount" placeholder="Введите сумму" min="0.1" step="0.1" />
+                <label>Ставка (🪙 монет) — создать новую игру</label>
+                <input type="number" class="bet-input" id="fgCreateAmount" placeholder="Введите сумму" min="1" step="1" />
               </div>
               <button class="btn btn-accent" onclick="createFastGame()">➕ Создать</button>
             </div>
@@ -194,19 +194,56 @@
       <div class="game-view" id="game-1vs1">
         <div class="game-card">
           <div style="font-weight:700;margin-bottom:14px;font-size:1rem;">🥊 Дуэли 1 vs 1</div>
-          <div class="bet-form" style="margin-bottom:16px;">
-            <div class="bet-form-row">
-              <div class="bet-input-group">
-                <label>Ставка (MDL) — создать дуэль</label>
-                <input type="number" class="bet-input" id="ovCreateAmount" placeholder="Введите сумму" min="0.1" step="0.1" />
+
+          <!-- Duel Arena (shown when in active/waiting duel) -->
+          <div id="duel-arena" class="duel-arena" style="display:none;">
+            <div class="duel-vs-container">
+              <div class="duel-slot">
+                <div class="duel-avatar-wrap">
+                  <div class="duel-avatar" id="duelLeftAvatar">?</div>
+                </div>
+                <div class="duel-player-info">
+                  <div class="duel-name" id="duelLeftName">-</div>
+                  <div class="duel-chance" id="duelLeftChance">50%</div>
+                  <div class="duel-bet" id="duelLeftBet">0 🪙</div>
+                </div>
               </div>
-              <button class="btn btn-accent" onclick="create1vs1()">🥊 Создать</button>
+
+              <div class="vs-label" id="duelVsText">VS</div>
+
+              <div class="duel-slot">
+                <div class="duel-avatar-wrap">
+                  <div class="duel-avatar" id="duelRightAvatar">?</div>
+                </div>
+                <div class="duel-player-info">
+                  <div class="duel-name" id="duelRightName">Ожидание...</div>
+                  <div class="duel-chance" id="duelRightChance">50%</div>
+                  <div class="duel-bet" id="duelRightBet">---</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="duel-timer-row">
+              <div class="duel-timer" id="duelTimer">--</div>
             </div>
           </div>
 
-          <div style="font-weight:600;margin-bottom:10px;color:var(--text-muted);">Активные дуэли</div>
-          <div class="rooms-grid" id="ovRooms">
-            <div class="empty-state"><div class="empty-icon">🥊</div>Нет активных дуэлей</div>
+          <!-- Rooms section (shown when not in active duel) -->
+          <div id="ovRoomsSection">
+            <div class="bet-form" style="margin-bottom:16px;">
+              <div class="bet-form-row">
+                <div class="bet-input-group">
+                  <label>Ставка (🪙 монет) — создать дуэль</label>
+                  <input type="number" class="bet-input" id="ovCreateAmount" placeholder="Введите сумму" min="1" step="1" />
+                </div>
+                <button class="btn btn-accent" onclick="create1vs1()">🥊 Создать</button>
+              </div>
+            </div>
+
+            <div style="font-weight:600;margin-bottom:10px;color:var(--text-muted);">Активные дуэли</div>
+            <div class="rooms-grid" id="ovRooms">
+              <div class="empty-state"><div class="empty-icon">🥊</div>Нет активных дуэлей</div>
+            </div>
           </div>
         </div>
       </div>
