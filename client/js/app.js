@@ -472,6 +472,11 @@ function finishBattle(game) {
 // ═══════════════════════════════════════════════════
 function getFastGames() { return ls.get(K.FAST, []); }
 
+// Active Fast Game arena state
+let activeFastGameId = null;
+let fgSpinInterval = null;
+let fgJoiningGameId = null;
+
 function createFastGame() {
   const coins = parseInt(document.getElementById('fgCreateAmount').value);
   if (!coins || coins <= 0) return showToast('Введите сумму ставки в монетах', 'error');
@@ -483,7 +488,7 @@ function createFastGame() {
     minBet: Math.floor(coins * 0.9), maxBet: Math.ceil(coins * 1.1),
     bets: [{ userId: user.id, username: user.username, amount: coins, color: getColor(0) }],
     pot: coins, createdAt: Date.now(),
-    abandonAt: Date.now() + 120000  // auto-cancel after 120s if no second player
+    abandonAt: Date.now() + 120000
   };
 
   adjustCoins(user.id, -coins);
@@ -499,15 +504,32 @@ function createFastGame() {
 function joinFastGame(gameId) {
   const games = getFastGames();
   const game = games.find(g => g.gameId === gameId);
-  if (!game || game.status !== 'waiting') return showToast('Игра недоступна', 'error');
+  if (!game || (game.status !== 'waiting' && game.status !== 'active')) return showToast('Игра недоступна', 'error');
   if (game.bets.find(b => b.userId === currentUser.id)) return showToast('Вы уже в этой игре', 'error');
+  if (game.bets.length >= game.maxPlayers) return showToast('Игра уже полная', 'error');
+
+  activeFastGameId = gameId;
+  showFastArena(game, 'join');
+}
+
+function confirmJoinFastGame() {
+  const gameId = fgJoiningGameId;
+  if (!gameId) return;
+
+  const games = getFastGames();
+  const game = games.find(g => g.gameId === gameId);
+  if (!game || (game.status !== 'waiting' && game.status !== 'active')) {
+    hideFastArena();
+    return showToast('Игра недоступна', 'error');
+  }
+  if (game.bets.find(b => b.userId === currentUser.id)) {
+    hideFastArena();
+    return showToast('Вы уже в этой игре', 'error');
+  }
 
   const minC = game.minBet;
   const maxC = game.maxBet;
-  const amountStr = prompt(`Введите ставку (${minC}–${maxC} монет):`);
-  if (!amountStr) return;
-
-  const coins = parseInt(amountStr);
+  const coins = parseInt(document.getElementById('fgJoinAmount').value);
   if (!coins || coins < minC || coins > maxC) {
     return showToast(`Ставка должна быть от ${minC} до ${maxC} монет`, 'error');
   }
@@ -519,23 +541,175 @@ function joinFastGame(gameId) {
   game.pot += coins;
   adjustCoins(user.id, -coins);
 
-  // When 2nd player joins, set a 30s countdown before drawing
   if (game.bets.length === 2) {
     game.endsAt = Date.now() + 30000;
     game.status = 'active';
     game.abandonAt = null;
   }
-  if (game.bets.length >= game.maxPlayers) {
-    game.status = 'finishing';
-    setTimeout(() => finishFastGame(gameId), 1500);
-  }
 
   const idx = games.findIndex(g => g.gameId === gameId);
+  if (game.bets.length >= game.maxPlayers) {
+    game.status = 'finishing';
+  }
   games[idx] = game;
   ls.set(K.FAST, games);
   refreshSidebar();
+
+  document.getElementById('fgJoinForm').style.display = 'none';
+  fgJoiningGameId = null;
+
+  document.getElementById('fgArenaPot').textContent = 'Банк: ' + formatCoins(game.pot);
+  renderFastArenaPlayers(game);
+
+  if (game.status === 'finishing') {
+    showToast('Все игроки собраны! Определяем победителя...', 'success');
+    document.getElementById('fgArenaTimer').textContent = '⏳ Определяем победителя...';
+    startFastAnimation(game, () => finishFastGame(gameId));
+  } else {
+    showToast('Вы вступили в игру!', 'success');
+    document.getElementById('fgArenaTimer').textContent = '▶ Старт через: ' + formatTimer(game.endsAt - Date.now());
+  }
+}
+
+function viewFastGame(gameId) {
+  const game = getFastGames().find(g => g.gameId === gameId);
+  if (!game) return;
+  activeFastGameId = gameId;
+  showFastArena(game, 'view');
+  if (game.status === 'finishing') {
+    document.getElementById('fgArenaTimer').textContent = '⏳ Определяем победителя...';
+  }
+}
+
+function showFastArena(game, mode) {
+  const screen = document.getElementById('fg-arena-screen');
+  if (!screen) return;
+
+  document.getElementById('fgArenaId').textContent = game.gameId;
+  document.getElementById('fgArenaPot').textContent = 'Банк: ' + formatCoins(game.pot);
+  renderFastArenaPlayers(game);
+
+  const joinForm = document.getElementById('fgJoinForm');
+  if (mode === 'join') {
+    document.getElementById('fgJoinLabel').textContent = `Ставка (${game.minBet}–${game.maxBet} монет)`;
+    document.getElementById('fgJoinAmount').value = '';
+    document.getElementById('fgJoinAmount').min = game.minBet;
+    document.getElementById('fgJoinAmount').max = game.maxBet;
+    joinForm.style.display = 'block';
+    fgJoiningGameId = game.gameId;
+    document.getElementById('fgArenaTimer').textContent = 'Выберите сумму ставки';
+  } else {
+    joinForm.style.display = 'none';
+    fgJoiningGameId = null;
+    if (game.endsAt) {
+      document.getElementById('fgArenaTimer').textContent = '▶ Старт через: ' + formatTimer(game.endsAt - Date.now());
+    } else if (game.abandonAt) {
+      const waitLeft = Math.max(0, Math.ceil((game.abandonAt - Date.now()) / 1000));
+      document.getElementById('fgArenaTimer').textContent = `⏳ Ожидание: ${waitLeft}с`;
+    } else {
+      document.getElementById('fgArenaTimer').textContent = '--';
+    }
+  }
+
+  screen.style.display = 'block';
+  document.getElementById('fgRoomsSection').style.display = 'none';
+}
+
+function hideFastArena() {
+  const screen = document.getElementById('fg-arena-screen');
+  if (screen) screen.style.display = 'none';
+  const rooms = document.getElementById('fgRoomsSection');
+  if (rooms) rooms.style.display = 'block';
+  if (fgSpinInterval) { clearInterval(fgSpinInterval); fgSpinInterval = null; }
+}
+
+function exitFastArena() {
+  hideFastArena();
+  activeFastGameId = null;
+  fgJoiningGameId = null;
   renderFastGames();
-  showToast('Вы вступили в игру!', 'success');
+}
+
+function renderFastArenaPlayers(game) {
+  const chances = calcChances(game.bets);
+  const container = document.getElementById('fgArenaPlayers');
+  if (!container) return;
+
+  const slots = [];
+  for (let i = 0; i < game.maxPlayers; i++) {
+    const p = game.bets[i];
+    const chance = chances[i];
+    if (p) {
+      slots.push(`<div class="fg-arena-slot">
+        <div class="fg-arena-avatar" id="fgAvatar${i}" style="background:${p.color}">${escHtml(p.username[0].toUpperCase())}</div>
+        <div class="fg-arena-name" id="fgName${i}">${escHtml(p.username)}</div>
+        <div class="fg-arena-chance" id="fgChance${i}">${chance ? Math.round(chance.chance) + '%' : '--'}</div>
+        <div class="fg-arena-bet">${formatCoins(p.amount)}</div>
+      </div>`);
+    } else {
+      slots.push(`<div class="fg-arena-slot fg-arena-slot-empty">
+        <div class="fg-arena-avatar fg-arena-avatar-empty" id="fgAvatar${i}">?</div>
+        <div class="fg-arena-name" id="fgName${i}">Ожидание...</div>
+        <div class="fg-arena-chance" id="fgChance${i}">--</div>
+        <div class="fg-arena-bet">---</div>
+      </div>`);
+    }
+  }
+  container.innerHTML = slots.join('');
+}
+
+function startFastAnimation(game, onComplete) {
+  const avatarEls = game.bets.map((_, i) => document.getElementById('fgAvatar' + i));
+  avatarEls.forEach(el => { if (el) el.classList.add('avatar-spin'); });
+
+  let frame = 0;
+  const spinDuration = 3000;
+  const startTime = Date.now();
+
+  fgSpinInterval = setInterval(() => {
+    const elapsed = Date.now() - startTime;
+    const progress = Math.min(elapsed / spinDuration, 1);
+    const interval = progress < 0.7 ? 80 : progress < 0.9 ? 150 : 250;
+
+    if (frame % Math.ceil(interval / 80) === 0) {
+      avatarEls.forEach(el => {
+        if (el) {
+          el.textContent = SPIN_CHARS[Math.floor(Math.random() * SPIN_CHARS.length)];
+          el.style.background = COLORS[Math.floor(Math.random() * COLORS.length)];
+        }
+      });
+    }
+    frame++;
+
+    if (elapsed >= spinDuration) {
+      clearInterval(fgSpinInterval);
+      fgSpinInterval = null;
+      avatarEls.forEach(el => { if (el) el.classList.remove('avatar-spin'); });
+      game.bets.forEach((p, i) => {
+        const el = document.getElementById('fgAvatar' + i);
+        if (el) { el.textContent = p.username[0].toUpperCase(); el.style.background = p.color; }
+      });
+      if (onComplete) onComplete();
+    }
+  }, 80);
+}
+
+function finalizeFastAnimation(game, winner) {
+  game.bets.forEach((p, i) => {
+    const avatarEl = document.getElementById('fgAvatar' + i);
+    const chanceEl = document.getElementById('fgChance' + i);
+    if (avatarEl) {
+      if (p.userId === winner.userId) {
+        avatarEl.classList.add('avatar-winner');
+        if (chanceEl) chanceEl.textContent = '🏆 Победа!';
+      } else {
+        avatarEl.classList.add('avatar-loser');
+        if (chanceEl) chanceEl.textContent = '💔 Поражение';
+      }
+    }
+  });
+  const timerEl = document.getElementById('fgArenaTimer');
+  if (timerEl) timerEl.textContent = '+' + formatCoins(game.pot);
 }
 
 function finishFastGame(gameId) {
@@ -544,7 +718,6 @@ function finishFastGame(gameId) {
   if (!game) return;
 
   if (game.bets.length < 2) {
-    // Abandon: refund the only player
     const b = game.bets[0];
     if (b) {
       adjustCoins(b.userId, b.amount);
@@ -552,6 +725,10 @@ function finishFastGame(gameId) {
         refreshSidebar();
         showToast('Никто не присоединился. Ставка возвращена! 💸', 'info');
       }
+    }
+    if (activeFastGameId === gameId) {
+      hideFastArena();
+      activeFastGameId = null;
     }
     ls.set(K.FAST, games.filter(g => g.gameId !== gameId));
     renderFastGames();
@@ -563,32 +740,85 @@ function finishFastGame(gameId) {
   game.winner = { ...winner, winAmount: game.pot };
   recordGameResult(game.bets, winner.userId, game.pot);
   addToHistory({ ...game, type: 'Fast Game' });
-  showWinner(winner.username, game.pot);
-  showToast(`Fast Game завершена! Победитель: ${winner.username} 🎉`, 'success');
-  ls.set(K.FAST, games.filter(g => g.gameId !== gameId));
-  refreshSidebar();
-  renderFastGames();
+
+  if (activeFastGameId === gameId) {
+    finalizeFastAnimation(game, winner);
+    showWinner(winner.username, game.pot);
+    showToast(`Fast Game завершена! Победитель: ${winner.username} 🎉`, 'success');
+    ls.set(K.FAST, games.filter(g => g.gameId !== gameId));
+    refreshSidebar();
+    setTimeout(() => {
+      hideFastArena();
+      activeFastGameId = null;
+      renderFastGames();
+    }, 6000);
+  } else {
+    showWinner(winner.username, game.pot);
+    showToast(`Fast Game завершена! Победитель: ${winner.username} 🎉`, 'success');
+    ls.set(K.FAST, games.filter(g => g.gameId !== gameId));
+    refreshSidebar();
+    renderFastGames();
+  }
 }
 
 function renderFastGames() {
   const games = getFastGames().filter(g => g.status !== 'finished');
   const el = document.getElementById('fgRooms');
-  if (!games.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">⚡</div>Нет активных игр</div>'; return; }
-  el.innerHTML = games.map(g => {
-    const players = calcChances(g.bets);
-    const canJoin = g.status === 'waiting' && !g.bets.find(b => b.userId === currentUser.id) && g.bets.length < g.maxPlayers;
-    const waitLeft = g.abandonAt ? Math.max(0, Math.ceil((g.abandonAt - Date.now()) / 1000)) : null;
-    const countLeft = g.endsAt ? formatTimer(g.endsAt - Date.now()) : null;
-    return `<div class="room-card" ${canJoin ? `onclick="joinFastGame('${g.gameId}')"` : ''} style="${!canJoin ? 'opacity:0.7;cursor:default;' : ''}">
-      <div class="room-card-id">${g.gameId}</div>
-      <div class="room-card-pot">🏆 ${formatCoins(g.pot)}</div>
-      <div class="room-card-info">Ставка: ${g.minBet}–${g.maxBet} 🪙</div>
-      <div class="room-card-info">Игроков: ${g.bets.length} / ${g.maxPlayers}</div>
-      ${waitLeft !== null ? `<div class="room-card-info" style="color:var(--accent);">⏳ Ожидание: ${waitLeft}с</div>` : ''}
-      ${countLeft ? `<div class="room-card-info" style="color:var(--green);">▶ Старт через: ${countLeft}</div>` : ''}
-      <div class="room-card-players">${players.map(p => `<div class="room-player-chip" style="border-color:${p.color}">${escHtml(p.username)}</div>`).join('')}</div>
-    </div>`;
+  if (!el) return;
+  if (!games.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">⚡</div>Нет активных игр</div>';
+    return;
+  }
+  el.innerHTML = games.map(renderFastGameCard).join('');
+}
+
+function renderFastGameCard(g) {
+  const chances = calcChances(g.bets);
+  const isMyGame = g.bets.some(b => b.userId === currentUser.id);
+  const isFull = g.bets.length >= g.maxPlayers;
+  const canJoin = !isMyGame && !isFull && (g.status === 'waiting' || g.status === 'active');
+  const waitLeft = g.abandonAt ? Math.max(0, Math.ceil((g.abandonAt - Date.now()) / 1000)) : '--';
+
+  const playerSlots = Array.from({ length: g.maxPlayers }, (_, i) => {
+    const p = g.bets[i];
+    const chance = chances[i];
+    if (p) {
+      return `<div class="fg-card-player">
+        <div class="fg-card-avatar" style="background:${p.color}">${escHtml(p.username[0].toUpperCase())}</div>
+        <div class="fg-card-player-name">${escHtml(p.username)}</div>
+        <div class="fg-card-player-chance">${chance ? Math.round(chance.chance) + '%' : '--'}</div>
+      </div>`;
+    } else {
+      return `<div class="fg-card-player fg-card-player-empty">
+        <div class="fg-card-avatar fg-card-avatar-empty">?</div>
+        <div class="fg-card-player-name">—</div>
+        <div class="fg-card-player-chance">--</div>
+      </div>`;
+    }
   }).join('');
+
+  let actionBtn = '';
+  if (canJoin) {
+    actionBtn = `<button class="btn btn-accent ovs-action-btn" onclick="joinFastGame('${g.gameId}')">Присоединиться</button>`;
+  } else if (isFull || g.status === 'finishing') {
+    actionBtn = `<button class="btn btn-accent ovs-action-btn" onclick="viewFastGame('${g.gameId}')">Посмотреть</button>`;
+  } else if (isMyGame && g.status === 'active') {
+    const timeLeft = g.endsAt ? formatTimer(g.endsAt - Date.now()) : '--';
+    actionBtn = `<button class="btn btn-outline ovs-action-btn" onclick="viewFastGame('${g.gameId}')">▶ Посмотреть (${timeLeft})</button>`;
+  } else if (isMyGame && g.status === 'waiting') {
+    actionBtn = `<div class="ovs-waiting-text">⏳ Ожидание игроков: ${waitLeft}с</div>`;
+  }
+
+  return `<div class="ovs-card">
+    <div class="fg-card-header">
+      <div class="fg-card-id">⚡ ${escHtml(g.gameId)}</div>
+      <div class="fg-card-count">${g.bets.length}/${g.maxPlayers} игроков</div>
+    </div>
+    <div class="ovs-card-pot">🏆 Банк: ${formatCoins(g.pot)}</div>
+    <div class="fg-card-bet-range">Ставка: ${g.minBet}–${g.maxBet} 🪙</div>
+    <div class="fg-card-players">${playerSlots}</div>
+    ${actionBtn}
+  </div>`;
 }
 
 // ═══════════════════════════════════════════════════
@@ -1167,7 +1397,26 @@ function gameTick() {
   // ── Update Fast Game countdowns ──
   if (tickCount % 2 === 0) {
     const fgView = document.getElementById('game-fast');
-    if (fgView && fgView.classList.contains('active')) renderFastGames();
+    if (fgView && fgView.classList.contains('active')) {
+      const arenaScreen = document.getElementById('fg-arena-screen');
+      if (arenaScreen && arenaScreen.style.display !== 'none') {
+        // Arena is open — update timer without re-rendering players
+        if (activeFastGameId && !fgSpinInterval && !fgJoiningGameId) {
+          const activeG = getFastGames().find(g => g.gameId === activeFastGameId);
+          const timerEl = document.getElementById('fgArenaTimer');
+          if (timerEl && activeG) {
+            if (activeG.endsAt) {
+              timerEl.textContent = '▶ Старт через: ' + formatTimer(activeG.endsAt - Date.now());
+            } else if (activeG.abandonAt) {
+              const waitLeft = Math.max(0, Math.ceil((activeG.abandonAt - Date.now()) / 1000));
+              timerEl.textContent = `⏳ Ожидание: ${waitLeft}с`;
+            }
+          }
+        }
+      } else {
+        renderFastGames();
+      }
+    }
   }
 
   // ── Update 1vs1 game cards (when list is visible) ──
