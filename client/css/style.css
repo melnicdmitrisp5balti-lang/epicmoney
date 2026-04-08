@@ -605,3 +605,36 @@ html, body {
 .ovs-history-main { display: flex; flex-direction: column; gap: 2px; }
 .ovs-history-players { font-size: 0.88rem; font-weight: 600; color: var(--text); }
 .ovs-history-bet { font-size: 0.78rem; color: var(--text-muted); }
+
+/* ─── Fast Game Cards ───────────────────────────── */
+.fg-card-players {
+  justify-content: center; gap: 4px; flex-wrap: wrap;
+}
+.fg-card-sep {
+  font-size: 1.1rem; font-weight: 900; color: var(--accent);
+  align-self: center; flex-shrink: 0; padding: 0 2px;
+}
+.fg-join-form {
+  margin-top: 10px; background: var(--bg-dark);
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px;
+}
+.fg-join-range {
+  font-size: 0.78rem; color: var(--text-muted); margin-bottom: 8px;
+  text-align: center;
+}
+.fg-join-row {
+  display: flex; gap: 6px; align-items: center;
+}
+.fg-join-row .bet-input {
+  flex: 1; min-width: 0;
+}
+
+/* ─── Fast Game Arena ───────────────────────────── */
+.fg-arena-players {
+  display: flex; align-items: flex-start; justify-content: center;
+  gap: 8px; flex-wrap: wrap; margin-bottom: 14px;
+}
+.fg-arena-sep {
+  font-size: 1.4rem; font-weight: 900; color: var(--accent);
+  align-self: center; flex-shrink: 0;
+}

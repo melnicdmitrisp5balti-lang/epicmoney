@@ -171,21 +171,45 @@
 
       <!-- ────── FAST GAME ────────────────── -->
       <div class="game-view" id="game-fast">
-        <div class="game-card">
-          <div style="font-weight:700;margin-bottom:14px;font-size:1rem;">⚡ Быстрые игры (макс. 3 игрока)</div>
-          <div class="bet-form" style="margin-bottom:16px;">
-            <div class="bet-form-row">
-              <div class="bet-input-group">
-                <label>Ставка (🪙 монет) — создать новую игру</label>
-                <input type="number" class="bet-input" id="fgCreateAmount" placeholder="Введите сумму" min="1" step="1" />
-              </div>
-              <button class="btn btn-accent" onclick="createFastGame()">➕ Создать</button>
+
+        <!-- Fast Game Arena Screen (shown during animation / viewing) -->
+        <div id="fg-screen" style="display:none;">
+          <div class="game-card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+              <button class="btn btn-outline btn-sm" onclick="exitFastGameScreen()">← Назад</button>
+              <div style="font-weight:700;font-size:1rem;">⚡ Fast Game</div>
+              <div></div>
+            </div>
+            <div class="fg-arena-players" id="fgArenaPlayers">
+              <!-- Player slots rendered dynamically by JS -->
+            </div>
+            <div class="duel-timer-row" style="margin-top:12px;">
+              <div class="duel-timer" id="fgArenaTimer">--</div>
             </div>
           </div>
+        </div>
 
-          <div style="font-weight:600;margin-bottom:10px;color:var(--text-muted);">Доступные игры</div>
-          <div class="rooms-grid" id="fgRooms">
+        <!-- Games List Section -->
+        <div id="fgRoomsSection">
+          <!-- Create game form -->
+          <div class="ovs-create-form">
+            <div class="bet-input-group">
+              <label>Ставка (🪙 монет) — создать новую игру</label>
+              <input type="number" class="bet-input" id="fgCreateAmount" placeholder="Введите сумму" min="1" step="1" />
+            </div>
+            <button class="btn btn-accent ovs-create-btn" onclick="createFastGame()">⚡ Создать игру</button>
+          </div>
+
+          <!-- Active games list -->
+          <div class="ovs-section-title">АКТИВНЫЕ ИГРЫ</div>
+          <div id="fgRooms">
             <div class="empty-state"><div class="empty-icon">⚡</div>Нет активных игр</div>
+          </div>
+
+          <!-- My games history -->
+          <div class="ovs-section-title" style="margin-top:20px;">ИСТОРИЯ МОИХ ИГР</div>
+          <div id="fgMyHistory">
+            <div class="empty-state"><div class="empty-icon">📋</div>История пуста</div>
           </div>
         </div>
       </div>

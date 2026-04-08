@@ -472,6 +472,10 @@ function finishBattle(game) {
 // ═══════════════════════════════════════════════════
 function getFastGames() { return ls.get(K.FAST, []); }
 
+// Currently active Fast Game being viewed / animated
+let activeFastGameId = null;
+let fgSpinInterval = null;
+
 function createFastGame() {
   const coins = parseInt(document.getElementById('fgCreateAmount').value);
   if (!coins || coins <= 0) return showToast('Введите сумму ставки в монетах', 'error');
@@ -497,17 +501,29 @@ function createFastGame() {
 }
 
 function joinFastGame(gameId) {
+  // Toggle inline join form
+  const formEl = document.getElementById('fgJoinForm-' + gameId);
+  if (!formEl) return;
+  formEl.style.display = formEl.style.display === 'none' ? 'block' : 'none';
+}
+
+function cancelJoinFastGame(gameId) {
+  const formEl = document.getElementById('fgJoinForm-' + gameId);
+  if (formEl) formEl.style.display = 'none';
+}
+
+function confirmJoinFastGame(gameId) {
   const games = getFastGames();
   const game = games.find(g => g.gameId === gameId);
-  if (!game || game.status !== 'waiting') return showToast('Игра недоступна', 'error');
+  if (!game || (game.status !== 'waiting' && game.status !== 'active')) return showToast('Игра недоступна', 'error');
   if (game.bets.find(b => b.userId === currentUser.id)) return showToast('Вы уже в этой игре', 'error');
 
+  const amtEl = document.getElementById('fgJoinAmt-' + gameId);
+  if (!amtEl) return;
+  const coins = parseInt(amtEl.value);
   const minC = game.minBet;
   const maxC = game.maxBet;
-  const amountStr = prompt(`Введите ставку (${minC}–${maxC} монет):`);
-  if (!amountStr) return;
 
-  const coins = parseInt(amountStr);
   if (!coins || coins < minC || coins > maxC) {
     return showToast(`Ставка должна быть от ${minC} до ${maxC} монет`, 'error');
   }
@@ -525,13 +541,22 @@ function joinFastGame(gameId) {
     game.status = 'active';
     game.abandonAt = null;
   }
-  if (game.bets.length >= game.maxPlayers) {
-    game.status = 'finishing';
-    setTimeout(() => finishFastGame(gameId), 1500);
-  }
 
   const idx = games.findIndex(g => g.gameId === gameId);
   games[idx] = game;
+
+  if (game.bets.length >= game.maxPlayers) {
+    game.status = 'finishing';
+    ls.set(K.FAST, games);
+    refreshSidebar();
+    renderFastGames();
+    showToast('Вы вступили в игру! Определяем победителя...', 'success');
+    activeFastGameId = gameId;
+    showFastGameArena(game);
+    startFastAnimation(game, () => finishFastGame(gameId));
+    return;
+  }
+
   ls.set(K.FAST, games);
   refreshSidebar();
   renderFastGames();
@@ -563,30 +588,241 @@ function finishFastGame(gameId) {
   game.winner = { ...winner, winAmount: game.pot };
   recordGameResult(game.bets, winner.userId, game.pot);
   addToHistory({ ...game, type: 'Fast Game' });
+
+  // Show winner in arena if it's currently open
+  if (activeFastGameId === gameId) {
+    finalizeFastAnimation(game, winner);
+  }
+
   showWinner(winner.username, game.pot);
   showToast(`Fast Game завершена! Победитель: ${winner.username} 🎉`, 'success');
+
   ls.set(K.FAST, games.filter(g => g.gameId !== gameId));
   refreshSidebar();
+
+  setTimeout(() => {
+    if (activeFastGameId === gameId) {
+      hideFastGameArena();
+      activeFastGameId = null;
+    }
+    renderFastGames();
+  }, 6000);
+}
+
+// ── Fast Game Arena UI ─────────────────────────────
+function showFastGameArena(game) {
+  const screen = document.getElementById('fg-screen');
+  if (!screen) return;
+  const playersEl = document.getElementById('fgArenaPlayers');
+  const chances = calcChances(game.bets);
+
+  let slots = '';
+  for (let i = 0; i < game.maxPlayers; i++) {
+    if (i > 0) slots += '<div class="fg-arena-sep">+</div>';
+    const p = chances[i];
+    if (p) {
+      slots += `<div class="duel-slot">
+        <div class="duel-avatar-wrap">
+          <div class="duel-avatar" id="fgArenaAvatar${i}" style="background:${p.color}">${escHtml(p.username[0].toUpperCase())}</div>
+        </div>
+        <div class="duel-player-info">
+          <div class="duel-name">${escHtml(p.username)}</div>
+          <div class="duel-chance" id="fgArenaChance${i}">${p.chance}%</div>
+          <div class="duel-bet">${formatCoins(p.amount)}</div>
+        </div>
+      </div>`;
+    } else {
+      slots += `<div class="duel-slot" style="opacity:0.4;">
+        <div class="duel-avatar-wrap">
+          <div class="duel-avatar" id="fgArenaAvatar${i}" style="background:#2a2f3e;color:#3d4a63;">?</div>
+        </div>
+        <div class="duel-player-info">
+          <div class="duel-name">Ожидание...</div>
+          <div class="duel-chance" id="fgArenaChance${i}">--</div>
+          <div class="duel-bet">---</div>
+        </div>
+      </div>`;
+    }
+  }
+
+  playersEl.innerHTML = slots;
+  document.getElementById('fgArenaTimer').textContent =
+    game.status === 'finishing' ? '⏳ Определяем победителя...' : '--';
+
+  screen.style.display = 'block';
+  document.getElementById('fgRoomsSection').style.display = 'none';
+}
+
+function hideFastGameArena() {
+  const screen = document.getElementById('fg-screen');
+  if (screen) screen.style.display = 'none';
+  const rooms = document.getElementById('fgRoomsSection');
+  if (rooms) rooms.style.display = 'block';
+  if (fgSpinInterval) { clearInterval(fgSpinInterval); fgSpinInterval = null; }
+}
+
+function exitFastGameScreen() {
+  hideFastGameArena();
+  activeFastGameId = null;
   renderFastGames();
+}
+
+function viewFastGame(gameId) {
+  const game = getFastGames().find(g => g.gameId === gameId);
+  if (!game) return;
+  activeFastGameId = gameId;
+  showFastGameArena(game);
+  if (game.status === 'finishing') {
+    document.getElementById('fgArenaTimer').textContent = '⏳ Определяем победителя...';
+  }
+}
+
+function startFastAnimation(game, onComplete) {
+  const bets = game.bets;
+  const avatarEls = bets.map((_, i) => document.getElementById('fgArenaAvatar' + i)).filter(Boolean);
+
+  avatarEls.forEach(el => el.classList.add('avatar-spin'));
+
+  let frame = 0;
+  const spinDuration = 3000;
+  const startTime = Date.now();
+
+  fgSpinInterval = setInterval(() => {
+    const elapsed = Date.now() - startTime;
+    const progress = Math.min(elapsed / spinDuration, 1);
+    const interval = progress < 0.7 ? 80 : progress < 0.9 ? 150 : 250;
+
+    if (frame % Math.ceil(interval / 80) === 0) {
+      avatarEls.forEach(el => {
+        el.textContent = SPIN_CHARS[Math.floor(Math.random() * SPIN_CHARS.length)];
+        el.style.background = COLORS[Math.floor(Math.random() * COLORS.length)];
+      });
+    }
+    frame++;
+
+    if (elapsed >= spinDuration) {
+      clearInterval(fgSpinInterval);
+      fgSpinInterval = null;
+      avatarEls.forEach((el, i) => {
+        el.classList.remove('avatar-spin');
+        if (bets[i]) {
+          el.textContent = bets[i].username[0].toUpperCase();
+          el.style.background = bets[i].color;
+        }
+      });
+      if (onComplete) onComplete();
+    }
+  }, 80);
+}
+
+function finalizeFastAnimation(game, winner) {
+  game.bets.forEach((b, i) => {
+    const el = document.getElementById('fgArenaAvatar' + i);
+    const chanceEl = document.getElementById('fgArenaChance' + i);
+    if (!el) return;
+    if (b.userId === winner.userId) {
+      el.classList.add('avatar-winner');
+      if (chanceEl) chanceEl.textContent = '🏆 Победа!';
+    } else {
+      el.classList.add('avatar-loser');
+      if (chanceEl) chanceEl.textContent = '💔 Поражение';
+    }
+  });
+  document.getElementById('fgArenaTimer').textContent = '+' + formatCoins(game.pot);
 }
 
 function renderFastGames() {
   const games = getFastGames().filter(g => g.status !== 'finished');
   const el = document.getElementById('fgRooms');
-  if (!games.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">⚡</div>Нет активных игр</div>'; return; }
-  el.innerHTML = games.map(g => {
-    const players = calcChances(g.bets);
-    const canJoin = g.status === 'waiting' && !g.bets.find(b => b.userId === currentUser.id) && g.bets.length < g.maxPlayers;
-    const waitLeft = g.abandonAt ? Math.max(0, Math.ceil((g.abandonAt - Date.now()) / 1000)) : null;
-    const countLeft = g.endsAt ? formatTimer(g.endsAt - Date.now()) : null;
-    return `<div class="room-card" ${canJoin ? `onclick="joinFastGame('${g.gameId}')"` : ''} style="${!canJoin ? 'opacity:0.7;cursor:default;' : ''}">
-      <div class="room-card-id">${g.gameId}</div>
-      <div class="room-card-pot">🏆 ${formatCoins(g.pot)}</div>
-      <div class="room-card-info">Ставка: ${g.minBet}–${g.maxBet} 🪙</div>
-      <div class="room-card-info">Игроков: ${g.bets.length} / ${g.maxPlayers}</div>
-      ${waitLeft !== null ? `<div class="room-card-info" style="color:var(--accent);">⏳ Ожидание: ${waitLeft}с</div>` : ''}
-      ${countLeft ? `<div class="room-card-info" style="color:var(--green);">▶ Старт через: ${countLeft}</div>` : ''}
-      <div class="room-card-players">${players.map(p => `<div class="room-player-chip" style="border-color:${p.color}">${escHtml(p.username)}</div>`).join('')}</div>
+
+  if (!games.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">⚡</div>Нет активных игр</div>';
+  } else {
+    el.innerHTML = games.map(renderFastGameCard).join('');
+  }
+
+  renderFgMyHistory();
+}
+
+function renderFastGameCard(g) {
+  const players = calcChances(g.bets);
+  const isMyGame = g.bets.some(b => b.userId === currentUser.id);
+  const canJoin = !isMyGame && (g.status === 'waiting' || g.status === 'active') && g.bets.length < g.maxPlayers;
+  const isFull = g.bets.length >= g.maxPlayers;
+  const waitLeft = g.abandonAt ? Math.max(0, Math.ceil((g.abandonAt - Date.now()) / 1000)) : null;
+
+  // Build player slots (up to maxPlayers)
+  let slotsHtml = '';
+  for (let i = 0; i < g.maxPlayers; i++) {
+    if (i > 0) slotsHtml += '<div class="fg-card-sep">+</div>';
+    const p = players[i];
+    if (p) {
+      slotsHtml += `<div class="ovs-player">
+        <div class="ovs-avatar" style="background:${p.color}">${escHtml(p.username[0].toUpperCase())}</div>
+        <div class="ovs-player-name">${escHtml(p.username)}</div>
+        <div class="ovs-player-chance">${p.chance}%</div>
+        <div class="ovs-player-bet">Поставил: ${formatCoins(p.amount)}</div>
+      </div>`;
+    } else {
+      slotsHtml += `<div class="ovs-player">
+        <div class="ovs-avatar ovs-avatar-empty">?</div>
+        <div class="ovs-player-name">Ожидание...</div>
+        <div class="ovs-player-chance">--</div>
+        <div class="ovs-player-bet">Свободно</div>
+      </div>`;
+    }
+  }
+
+  // Action button / form
+  let actionHtml = '';
+  if (canJoin) {
+    actionHtml = `<button class="btn btn-accent ovs-action-btn" onclick="joinFastGame('${g.gameId}')">Присоединиться</button>
+    <div class="fg-join-form" id="fgJoinForm-${g.gameId}" style="display:none;">
+      <div class="fg-join-range">Ставка: ${g.minBet} – ${g.maxBet} 🪙</div>
+      <div class="fg-join-row">
+        <input type="number" class="bet-input" id="fgJoinAmt-${g.gameId}" placeholder="${g.minBet}–${g.maxBet}" min="${g.minBet}" max="${g.maxBet}" step="1" />
+        <button class="btn btn-accent btn-sm" onclick="confirmJoinFastGame('${g.gameId}')">✅</button>
+        <button class="btn btn-outline btn-sm" onclick="cancelJoinFastGame('${g.gameId}')">✕</button>
+      </div>
+    </div>`;
+  } else if (isFull) {
+    actionHtml = `<button class="btn btn-accent ovs-action-btn" onclick="viewFastGame('${g.gameId}')">Посмотреть</button>`;
+  } else if (isMyGame && (g.status === 'waiting' || g.status === 'active')) {
+    const timeLeft = g.endsAt ? formatTimer(g.endsAt - Date.now()) : (waitLeft !== null ? waitLeft + 'с' : '--');
+    actionHtml = `<div class="ovs-waiting-text">⏳ Ожидание игроков: ${timeLeft}</div>`;
+  }
+
+  return `<div class="ovs-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <div style="font-size:0.75rem;color:var(--text-muted);">${escHtml(g.gameId)}</div>
+      <div style="font-size:0.75rem;color:var(--text-muted);">Игроков: ${g.bets.length}/${g.maxPlayers}</div>
+    </div>
+    <div class="ovs-card-pot">🏆 Банк: ${formatCoins(g.pot)}</div>
+    <div class="ovs-players fg-card-players">${slotsHtml}</div>
+    ${actionHtml}
+  </div>`;
+}
+
+function renderFgMyHistory() {
+  const el = document.getElementById('fgMyHistory');
+  if (!el) return;
+  const history = ls.get(K.HISTORY, [])
+    .filter(g => g.type === 'Fast Game' && g.bets && g.bets.some(b => b.userId === currentUser.id))
+    .reverse().slice(0, 5);
+  if (!history.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div>История пуста</div>';
+    return;
+  }
+  el.innerHTML = history.map(g => {
+    const myBet = g.bets.find(b => b.userId === currentUser.id);
+    const isWon = g.winner && g.winner.userId === currentUser.id;
+    const opponents = g.bets.filter(b => b.userId !== currentUser.id).map(b => escHtml(b.username)).join(', ');
+    return `<div class="ovs-history-item">
+      <div class="ovs-history-main">
+        <div class="ovs-history-players">vs ${opponents || '?'}</div>
+        <div class="ovs-history-bet">Ставка: ${formatCoins(myBet ? myBet.amount : 0)}</div>
+      </div>
+      <div class="${isWon ? 'won-badge' : 'lost-badge'}">${isWon ? '+' + formatCoins(g.winner.winAmount) : 'Проигрыш'}</div>
     </div>`;
   }).join('');
 }
@@ -1167,7 +1403,13 @@ function gameTick() {
   // ── Update Fast Game countdowns ──
   if (tickCount % 2 === 0) {
     const fgView = document.getElementById('game-fast');
-    if (fgView && fgView.classList.contains('active')) renderFastGames();
+    if (fgView && fgView.classList.contains('active')) {
+      const fgScreen = document.getElementById('fg-screen');
+      const isScreenVisible = fgScreen && fgScreen.style.display !== 'none';
+      if (!isScreenVisible) {
+        renderFastGames();
+      }
+    }
   }
 
   // ── Update 1vs1 game cards (when list is visible) ──
