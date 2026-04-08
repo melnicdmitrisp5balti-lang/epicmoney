@@ -1,6 +1,0 @@
-127.0.0.1 - - [08/Apr/2026 19:45:19] "GET /register.html HTTP/1.1" 200 -
-127.0.0.1 - - [08/Apr/2026 19:45:23] "GET /register.html HTTP/1.1" 200 -
-127.0.0.1 - - [08/Apr/2026 19:45:23] "GET /css/style.css HTTP/1.1" 200 -
-127.0.0.1 - - [08/Apr/2026 19:45:42] "GET /index.html HTTP/1.1" 200 -
-127.0.0.1 - - [08/Apr/2026 19:45:42] "GET /css/style.css HTTP/1.1" 200 -
-127.0.0.1 - - [08/Apr/2026 19:45:42] "GET /js/app.js HTTP/1.1" 200 -
