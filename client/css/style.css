@@ -438,3 +438,95 @@ html, body {
 .items-center { align-items: center; }
 .gap-8 { gap: 8px; }
 .justify-between { justify-content: space-between; }
+
+/* ─── Jackpot Arrow ─────────────────────────────── */
+.jackpot-indicator {
+  position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+  width: 0; height: 0;
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-top: 12px solid var(--accent);
+  z-index: 3; pointer-events: none;
+  filter: drop-shadow(0 0 4px rgba(255,215,0,0.7));
+}
+.jackpot-spin-wrapper { padding-top: 14px; }
+
+/* ─── 1vs1 Duel Arena ───────────────────────────── */
+.duel-arena {
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 10px 0 20px;
+  width: 100%;
+}
+.duel-vs-container {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 24px;
+  width: 100%;
+}
+.duel-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  max-width: 160px;
+}
+.duel-avatar-wrap { position: relative; }
+.duel-avatar {
+  width: 100px; height: 100px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), #ff8c00);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 2.2rem; font-weight: 800; color: #0d0f14;
+  border: 3px solid var(--border);
+  transition: all 0.2s; user-select: none;
+}
+.duel-avatar.avatar-spin {
+  animation: duelSpin 0.15s linear infinite;
+}
+@keyframes duelSpin {
+  0%   { transform: scale(1); }
+  25%  { transform: scale(1.08) rotate(5deg); }
+  50%  { transform: scale(1) rotate(0deg); }
+  75%  { transform: scale(1.08) rotate(-5deg); }
+  100% { transform: scale(1); }
+}
+.duel-avatar.avatar-winner {
+  border-color: var(--accent);
+  box-shadow: 0 0 24px rgba(255,215,0,0.6);
+  animation: winnerGlow 1s ease-in-out infinite alternate;
+}
+@keyframes winnerGlow {
+  from { box-shadow: 0 0 16px rgba(255,215,0,0.4); }
+  to   { box-shadow: 0 0 36px rgba(255,215,0,0.9); }
+}
+.duel-avatar.avatar-loser {
+  filter: grayscale(0.7) opacity(0.5);
+  border-color: var(--red);
+}
+.duel-player-info { text-align: center; }
+.duel-name { font-weight: 700; font-size: 0.95rem; color: var(--text); margin-bottom: 4px; }
+.duel-chance { font-size: 0.85rem; color: var(--accent); font-weight: 700; margin-bottom: 2px; }
+.duel-bet { font-size: 0.8rem; color: var(--text-muted); }
+.vs-label {
+  font-size: 2.4rem; font-weight: 900; color: var(--red);
+  text-shadow: 0 0 20px rgba(255,74,74,0.5);
+  align-self: center; letter-spacing: -2px; flex-shrink: 0;
+  transition: transform 0.15s;
+}
+.vs-label.vs-pulse {
+  animation: vsPulse 0.5s ease-in-out infinite alternate;
+}
+@keyframes vsPulse {
+  from { transform: scale(1); text-shadow: 0 0 10px rgba(255,74,74,0.4); }
+  to   { transform: scale(1.15); text-shadow: 0 0 30px rgba(255,74,74,0.9); }
+}
+.duel-timer-row { width: 100%; text-align: center; }
+.duel-timer {
+  display: inline-block;
+  background: var(--bg-dark); border: 1px solid var(--border);
+  border-radius: 20px; padding: 8px 20px;
+  font-size: 1rem; font-weight: 700; color: var(--accent); letter-spacing: 1px;
+}

@@ -5,14 +5,12 @@
 
 // ── Constants ──────────────────────────────────────
 const COINS_PER_MDL = 10;
-const TICKETS_PER_MDL = 100;
 const PROMO_CODES = {
   'EPIC100': 100,
   'WELCOME50': 50,
   'BONUS200': 200,
   'DEMO500': 500
 };
-const BOT_NAMES = ['Alex_Pro', 'DarkHorse', 'LuckyBot', 'GoldRush', 'StrikeX', 'NeonGhost', 'FlashBet', 'CryptoKing'];
 const COLORS = ['#e74c3c','#3498db','#2ecc71','#9b59b6','#e67e22','#1abc9c','#f39c12','#16a085','#c0392b','#2980b9'];
 
 // ── Storage Keys ───────────────────────────────────
@@ -88,7 +86,14 @@ function showToast(msg, type = 'info') {
 }
 
 function formatCoins(n) {
-  return Number(n || 0).toLocaleString('ru-RU') + ' монет';
+  return Number(n || 0).toLocaleString('ru-RU') + ' 🪙';
+}
+
+function formatTimer(ms) {
+  const totalSecs = Math.max(0, Math.ceil(ms / 1000));
+  const mins = Math.floor(totalSecs / 60).toString().padStart(2, '0');
+  const secs = (totalSecs % 60).toString().padStart(2, '0');
+  return mins + ':' + secs;
 }
 
 function escHtml(str) {
@@ -97,28 +102,26 @@ function escHtml(str) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function mdlToCoins(mdl) { return Math.round(parseFloat(mdl) * COINS_PER_MDL); }
 function coinsToMdl(coins) { return coins / COINS_PER_MDL; }
-function mdlToTickets(mdl) { return Math.round(parseFloat(mdl) * TICKETS_PER_MDL); }
 function getColor(index) { return COLORS[index % COLORS.length]; }
 
-// ── Pick winner proportional to tickets ───────────
+// ── Pick winner proportional to coins staked ──────
 function pickWinnerByTickets(bets) {
-  const total = bets.reduce((s, b) => s + (b.tickets || 0), 0);
+  const total = bets.reduce((s, b) => s + (b.amount || 0), 0);
   if (!total) return bets[Math.floor(Math.random() * bets.length)];
   let r = Math.random() * total;
   for (const b of bets) {
-    r -= (b.tickets || 0);
+    r -= (b.amount || 0);
     if (r <= 0) return b;
   }
   return bets[bets.length - 1];
 }
 
 function calcChances(bets) {
-  const total = bets.reduce((s, b) => s + (b.tickets || 0), 0);
+  const total = bets.reduce((s, b) => s + (b.amount || 0), 0);
   return bets.map(b => ({
     ...b,
-    chance: total > 0 ? ((b.tickets / total) * 100).toFixed(1) : '0.0'
+    chance: total > 0 ? ((b.amount / total) * 100).toFixed(1) : '0.0'
   }));
 }
 
@@ -198,7 +201,6 @@ function addToHistory(game) {
 // ── Update player stats ────────────────────────────
 function recordGameResult(bets, winnerId, winAmount) {
   bets.forEach(b => {
-    if (b.isBot) return;
     const u = getUserById(b.userId);
     if (!u) return;
     const patch = { gamesPlayed: (u.gamesPlayed || 0) + 1 };
@@ -224,76 +226,72 @@ function initJackpot() {
 }
 
 function placeJackpotBet() {
-  const amountMdl = parseFloat(document.getElementById('jpBetAmount').value);
-  if (!amountMdl || amountMdl <= 0) return showToast('Введите сумму ставки', 'error');
+  const coins = parseInt(document.getElementById('jpBetAmount').value);
+  if (!coins || coins <= 0) return showToast('Введите сумму ставки в монетах', 'error');
 
   const user = getUserById(currentUser.id);
-  const cost = mdlToCoins(amountMdl);
-  if (user.coins < cost) return showToast('Недостаточно монет', 'error');
+  if (user.coins < coins) return showToast('Недостаточно монет', 'error');
 
   let game = getJackpot();
   if (!game || game.status === 'finished') game = initJackpot();
   if (game.status === 'finishing') return showToast('Игра завершается, ждите следующей', 'error');
 
   const existingIdx = game.bets.findIndex(b => b.userId === user.id);
-  const tickets = mdlToTickets(amountMdl);
-
   if (existingIdx >= 0) {
-    game.bets[existingIdx].amount += cost;
-    game.bets[existingIdx].tickets += tickets;
-    game.bets[existingIdx].mdl = (game.bets[existingIdx].mdl || 0) + amountMdl;
+    game.bets[existingIdx].amount += coins;
   } else {
     const colorIdx = game.bets.length;
-    game.bets.push({ userId: user.id, username: user.username, amount: cost, mdl: amountMdl, tickets, colorIdx, color: getColor(colorIdx), isBot: false });
+    game.bets.push({ userId: user.id, username: user.username, amount: coins, colorIdx, color: getColor(colorIdx) });
   }
 
-  game.pot += cost;
-  if (!game.endsAt) { game.endsAt = Date.now() + 30000; game.status = 'active'; }
+  game.pot += coins;
 
-  adjustCoins(user.id, -cost);
+  // Timer starts only when 2+ different players have placed bets
+  const realPlayers = game.bets.length;
+  if (!game.endsAt && realPlayers >= 2) {
+    game.endsAt = Date.now() + 30000;
+    game.status = 'active';
+  } else if (realPlayers < 2) {
+    game.status = 'waiting';
+  }
+
+  adjustCoins(user.id, -coins);
   ls.set(K.JACKPOT, game);
   document.getElementById('jpBetAmount').value = '';
   refreshSidebar();
   renderJackpot(game);
-  showToast(`Ставка ${amountMdl} MDL принята! 🎰`, 'success');
-}
-
-function addBotToJackpot() {
-  let game = getJackpot();
-  if (!game || game.status !== 'active' || game.bets.length >= 8) return;
-  const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
-  if (game.bets.find(b => b.username === botName)) return;
-  const amountMdl = parseFloat((Math.random() * 5 + 0.5).toFixed(1));
-  const cost = mdlToCoins(amountMdl);
-  const tickets = mdlToTickets(amountMdl);
-  const colorIdx = game.bets.length;
-  game.bets.push({ userId: 'bot_' + botName, username: botName, amount: cost, mdl: amountMdl, tickets, colorIdx, color: getColor(colorIdx), isBot: true });
-  game.pot += cost;
-  ls.set(K.JACKPOT, game);
-  renderJackpot(game);
+  showToast(`Ставка ${formatCoins(coins)} принята! 🎰`, 'success');
 }
 
 function renderJackpot(game) {
   if (!game) return;
-  document.getElementById('jpGameId').textContent = 'ID: ' + game.gameId;
-  document.getElementById('jpPot').textContent = (game.pot / 10).toFixed(0);
+  document.getElementById('jpGameId').textContent = 'GAME #' + game.gameId;
+  document.getElementById('jpPot').textContent = game.pot.toLocaleString('ru-RU');
   setGameStatus('jpStatus', game.status);
-  const secs = game.endsAt ? Math.max(0, Math.ceil((game.endsAt - Date.now()) / 1000)) : null;
-  document.getElementById('jpTimer').textContent = secs !== null ? secs + 'с' : '--';
+
+  const timerEl = document.getElementById('jpTimer');
+  if (game.status === 'active' && game.endsAt) {
+    timerEl.textContent = formatTimer(game.endsAt - Date.now());
+  } else if (game.status === 'waiting') {
+    timerEl.textContent = game.bets.length > 0 ? 'Ждём игрока...' : '--:--';
+  } else {
+    timerEl.textContent = '--:--';
+  }
+
   renderJackpotBar(game.bets, false);
   renderJackpotPlayers(calcChances(game.bets));
 }
 
 function renderJackpotBar(bets, animate) {
   const track = document.getElementById('jpTrack');
-  const totalTickets = bets.reduce((s, b) => s + (b.tickets || 0), 0);
-  if (!totalTickets || !bets.length) {
+  const totalCoins = bets.reduce((s, b) => s + (b.amount || 0), 0);
+  if (!totalCoins || !bets.length) {
     track.innerHTML = `<div style="flex:1;background:var(--border);display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:0.8rem;">Ожидание ставок...</div>`;
     track.style.transform = 'translateX(0)';
     return;
   }
   const buildSegments = () => bets.map(b => {
-    const pct = (b.tickets / totalTickets) * 100;
+    const pct = (b.amount / totalCoins) * 100;
     return `<div class="jackpot-segment" style="width:${pct}%;background:${b.color};" title="${escHtml(b.username)}: ${pct.toFixed(1)}%">${pct > 8 ? escHtml(b.username) : ''}</div>`;
   }).join('');
 
@@ -327,7 +325,7 @@ function renderJackpotPlayers(players) {
     <div class="player-row">
       <div class="player-color" style="background:${p.color};"></div>
       <div class="player-name">${escHtml(p.username)}</div>
-      <div class="player-bet">${p.mdl ? p.mdl + ' MDL' : formatCoins(p.amount)}</div>
+      <div class="player-bet">${formatCoins(p.amount)}</div>
       <div class="player-chance">${p.chance}%</div>
     </div>`).join('');
 }
@@ -343,7 +341,7 @@ function finishJackpot(game) {
     game.status = 'finished';
     game.winner = { ...winner, winAmount: game.pot };
     ls.set(K.JACKPOT, game);
-    recordGameResult(game.bets, winner.isBot ? null : winner.userId, game.pot);
+    recordGameResult(game.bets, winner.userId, game.pot);
     addToHistory({ ...game, type: 'Jackpot' });
     showWinner(winner.username, game.pot);
     showToast(`Победитель: ${winner.username}! 🎉`, 'success');
@@ -373,57 +371,55 @@ function selectSide(side) {
 }
 
 function placeBattleBet() {
-  const amountMdl = parseFloat(document.getElementById('bgBetAmount').value);
-  if (!amountMdl || amountMdl <= 0) return showToast('Введите сумму ставки', 'error');
+  const coins = parseInt(document.getElementById('bgBetAmount').value);
+  if (!coins || coins <= 0) return showToast('Введите сумму ставки в монетах', 'error');
   if (!selectedBattleSide) return showToast('Выберите сторону (Синие/Красные)', 'error');
 
   const user = getUserById(currentUser.id);
-  const cost = mdlToCoins(amountMdl);
-  if (user.coins < cost) return showToast('Недостаточно монет', 'error');
+  if (user.coins < coins) return showToast('Недостаточно монет', 'error');
 
   let game = getBattle();
   if (!game || game.status === 'finished') game = initBattle();
   if (game.status === 'finishing') return showToast('Игра завершается, ждите следующей', 'error');
 
-  const tickets = mdlToTickets(amountMdl);
   const color = selectedBattleSide === 'blue' ? '#4a9eff' : '#ff4a4a';
-  game.bets.push({ userId: user.id, username: user.username, amount: cost, mdl: amountMdl, tickets, side: selectedBattleSide, color, isBot: false });
-  game.pot += cost;
-  if (selectedBattleSide === 'blue') game.bluePot += cost; else game.redPot += cost;
-  if (!game.endsAt) { game.endsAt = Date.now() + 30000; game.status = 'active'; }
+  game.bets.push({ userId: user.id, username: user.username, amount: coins, side: selectedBattleSide, color });
+  game.pot += coins;
+  if (selectedBattleSide === 'blue') game.bluePot += coins; else game.redPot += coins;
 
-  adjustCoins(user.id, -cost);
+  // Timer starts only when both sides have at least one player
+  const hasBluePlayers = game.bets.some(b => b.side === 'blue');
+  const hasRedPlayers = game.bets.some(b => b.side === 'red');
+  if (!game.endsAt && hasBluePlayers && hasRedPlayers) {
+    game.endsAt = Date.now() + 30000;
+    game.status = 'active';
+  } else if (!(hasBluePlayers && hasRedPlayers)) {
+    game.status = 'waiting';
+  }
+
+  adjustCoins(user.id, -coins);
   ls.set(K.BATTLE, game);
   document.getElementById('bgBetAmount').value = '';
   refreshSidebar();
   renderBattle(game);
-  showToast(`Ставка ${amountMdl} MDL на ${selectedBattleSide === 'blue' ? 'Синих' : 'Красных'} принята!`, 'success');
-}
-
-function addBotToBattle() {
-  let game = getBattle();
-  if (!game || game.status !== 'active' || game.bets.length >= 10) return;
-  const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
-  if (game.bets.find(b => b.username === botName)) return;
-  const side = game.bluePot <= game.redPot ? 'blue' : 'red';
-  const amountMdl = parseFloat((Math.random() * 4 + 0.5).toFixed(1));
-  const cost = mdlToCoins(amountMdl);
-  const tickets = mdlToTickets(amountMdl);
-  const color = side === 'blue' ? '#4a9eff' : '#ff4a4a';
-  game.bets.push({ userId: 'bot_' + botName, username: botName, amount: cost, mdl: amountMdl, tickets, side, color, isBot: true });
-  game.pot += cost;
-  if (side === 'blue') game.bluePot += cost; else game.redPot += cost;
-  ls.set(K.BATTLE, game);
-  renderBattle(game);
+  showToast(`Ставка ${formatCoins(coins)} на ${selectedBattleSide === 'blue' ? 'Синих' : 'Красных'} принята!`, 'success');
 }
 
 function renderBattle(game) {
   if (!game) return;
-  document.getElementById('bgGameId').textContent = 'ID: ' + game.gameId;
-  document.getElementById('bgPot').textContent = (game.pot / 10).toFixed(0);
+  document.getElementById('bgGameId').textContent = 'GAME #' + game.gameId;
+  document.getElementById('bgPot').textContent = game.pot.toLocaleString('ru-RU');
   setGameStatus('bgStatus', game.status);
-  const secs = game.endsAt ? Math.max(0, Math.ceil((game.endsAt - Date.now()) / 1000)) : null;
-  document.getElementById('bgTimer').textContent = secs !== null ? secs + 'с' : '--';
+
+  const timerEl = document.getElementById('bgTimer');
+  if (game.status === 'active' && game.endsAt) {
+    timerEl.textContent = formatTimer(game.endsAt - Date.now());
+  } else if (game.status === 'waiting') {
+    timerEl.textContent = game.bets.length > 0 ? 'Ждём игрока...' : '--:--';
+  } else {
+    timerEl.textContent = '--:--';
+  }
+
   renderBattlePlayers(calcChances(game.bets), game.bluePot, game.redPot);
 }
 
@@ -436,7 +432,7 @@ function renderBattlePlayers(players, bluePot, redPot) {
       <div class="player-row">
         <div class="player-color" style="background:${p.color};"></div>
         <div class="player-name">${escHtml(p.username)}</div>
-        <div class="player-bet">${p.mdl ? p.mdl + ' MDL' : formatCoins(p.amount)}</div>
+        <div class="player-bet">${formatCoins(p.amount)}</div>
         <span class="player-side-badge ${p.side === 'blue' ? 'side-blue' : 'side-red'}">${p.side === 'blue' ? 'Синие' : 'Красные'}</span>
         <div class="player-chance">${p.chance}%</div>
       </div>`).join('');
@@ -462,7 +458,7 @@ function finishBattle(game) {
     game.status = 'finished';
     game.winner = { ...winner, winAmount: game.pot, side: winningSide };
     ls.set(K.BATTLE, game);
-    recordGameResult(game.bets, winner.isBot ? null : winner.userId, game.pot);
+    recordGameResult(game.bets, winner.userId, game.pot);
     addToHistory({ ...game, type: 'Battle' });
     showWinner(winner.username, game.pot);
     showToast(`Победили ${winningSide === 'blue' ? 'Синие' : 'Красные'}! Победитель: ${winner.username} 🎉`, 'success');
@@ -477,27 +473,27 @@ function finishBattle(game) {
 function getFastGames() { return ls.get(K.FAST, []); }
 
 function createFastGame() {
-  const amountMdl = parseFloat(document.getElementById('fgCreateAmount').value);
-  if (!amountMdl || amountMdl <= 0) return showToast('Введите сумму ставки', 'error');
+  const coins = parseInt(document.getElementById('fgCreateAmount').value);
+  if (!coins || coins <= 0) return showToast('Введите сумму ставки в монетах', 'error');
   const user = getUserById(currentUser.id);
-  const cost = mdlToCoins(amountMdl);
-  if (user.coins < cost) return showToast('Недостаточно монет', 'error');
+  if (user.coins < coins) return showToast('Недостаточно монет', 'error');
 
   const game = {
     gameId: 'FG-' + genId(), status: 'waiting', maxPlayers: 3,
-    minBet: amountMdl * 0.9, maxBet: amountMdl * 1.1,
-    bets: [{ userId: user.id, username: user.username, amount: cost, mdl: amountMdl, tickets: mdlToTickets(amountMdl), color: getColor(0), isBot: false }],
-    pot: cost, createdAt: Date.now()
+    minBet: Math.floor(coins * 0.9), maxBet: Math.ceil(coins * 1.1),
+    bets: [{ userId: user.id, username: user.username, amount: coins, color: getColor(0) }],
+    pot: coins, createdAt: Date.now(),
+    abandonAt: Date.now() + 120000  // auto-cancel after 120s if no second player
   };
 
-  adjustCoins(user.id, -cost);
+  adjustCoins(user.id, -coins);
   const games = getFastGames();
   games.push(game);
   ls.set(K.FAST, games);
   document.getElementById('fgCreateAmount').value = '';
   refreshSidebar();
   renderFastGames();
-  showToast('Игра создана! Ожидаем игроков...', 'success');
+  showToast('Игра создана! Ожидаем игроков... (120с)', 'success');
 }
 
 function joinFastGame(gameId) {
@@ -506,63 +502,69 @@ function joinFastGame(gameId) {
   if (!game || game.status !== 'waiting') return showToast('Игра недоступна', 'error');
   if (game.bets.find(b => b.userId === currentUser.id)) return showToast('Вы уже в этой игре', 'error');
 
-  const minMdl = game.minBet.toFixed(1);
-  const maxMdl = game.maxBet.toFixed(1);
-  const amountStr = prompt(`Введите ставку (${minMdl}–${maxMdl} MDL):`);
+  const minC = game.minBet;
+  const maxC = game.maxBet;
+  const amountStr = prompt(`Введите ставку (${minC}–${maxC} монет):`);
   if (!amountStr) return;
 
-  const amountMdl = parseFloat(amountStr);
-  // Allow a small float tolerance (1%) to accommodate decimal rounding in user input
-  if (!amountMdl || amountMdl < game.minBet * 0.99 || amountMdl > game.maxBet * 1.01) {
-    return showToast(`Ставка должна быть от ${minMdl} до ${maxMdl} MDL`, 'error');
+  const coins = parseInt(amountStr);
+  if (!coins || coins < minC || coins > maxC) {
+    return showToast(`Ставка должна быть от ${minC} до ${maxC} монет`, 'error');
   }
 
   const user = getUserById(currentUser.id);
-  const cost = mdlToCoins(amountMdl);
-  if (user.coins < cost) return showToast('Недостаточно монет', 'error');
+  if (user.coins < coins) return showToast('Недостаточно монет', 'error');
 
-  game.bets.push({ userId: user.id, username: user.username, amount: cost, mdl: amountMdl, tickets: mdlToTickets(amountMdl), color: getColor(game.bets.length), isBot: false });
-  game.pot += cost;
-  adjustCoins(user.id, -cost);
+  game.bets.push({ userId: user.id, username: user.username, amount: coins, color: getColor(game.bets.length) });
+  game.pot += coins;
+  adjustCoins(user.id, -coins);
 
-  if (game.bets.length >= game.maxPlayers) { game.status = 'finishing'; setTimeout(() => finishFastGame(gameId), 1500); }
+  // When 2nd player joins, set a 30s countdown before drawing
+  if (game.bets.length === 2) {
+    game.endsAt = Date.now() + 30000;
+    game.status = 'active';
+    game.abandonAt = null;
+  }
+  if (game.bets.length >= game.maxPlayers) {
+    game.status = 'finishing';
+    setTimeout(() => finishFastGame(gameId), 1500);
+  }
 
   const idx = games.findIndex(g => g.gameId === gameId);
   games[idx] = game;
   ls.set(K.FAST, games);
   refreshSidebar();
   renderFastGames();
-  showToast(`Вы вступили в игру!`, 'success');
-}
-
-function addBotToFastGame(gameId) {
-  const games = getFastGames();
-  const game = games.find(g => g.gameId === gameId);
-  if (!game || game.status !== 'waiting' || game.bets.length >= game.maxPlayers) return;
-  const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
-  if (game.bets.find(b => b.username === botName)) return;
-  const amountMdl = parseFloat((game.minBet + Math.random() * (game.maxBet - game.minBet)).toFixed(1));
-  const cost = mdlToCoins(amountMdl);
-  game.bets.push({ userId: 'bot_' + botName, username: botName, amount: cost, mdl: amountMdl, tickets: mdlToTickets(amountMdl), color: getColor(game.bets.length), isBot: true });
-  game.pot += cost;
-  if (game.bets.length >= game.maxPlayers) { game.status = 'finishing'; setTimeout(() => finishFastGame(gameId), 1500); }
-  const idx = games.findIndex(g => g.gameId === gameId);
-  games[idx] = game;
-  ls.set(K.FAST, games);
-  renderFastGames();
+  showToast('Вы вступили в игру!', 'success');
 }
 
 function finishFastGame(gameId) {
   const games = getFastGames();
   const game = games.find(g => g.gameId === gameId);
   if (!game) return;
+
+  if (game.bets.length < 2) {
+    // Abandon: refund the only player
+    const b = game.bets[0];
+    if (b) {
+      adjustCoins(b.userId, b.amount);
+      if (b.userId === currentUser.id) {
+        refreshSidebar();
+        showToast('Никто не присоединился. Ставка возвращена! 💸', 'info');
+      }
+    }
+    ls.set(K.FAST, games.filter(g => g.gameId !== gameId));
+    renderFastGames();
+    return;
+  }
+
   const winner = pickWinnerByTickets(game.bets);
   game.status = 'finished';
   game.winner = { ...winner, winAmount: game.pot };
-  recordGameResult(game.bets, winner.isBot ? null : winner.userId, game.pot);
+  recordGameResult(game.bets, winner.userId, game.pot);
   addToHistory({ ...game, type: 'Fast Game' });
-  if (!winner.isBot) { showWinner(winner.username, game.pot); showToast(`Fast Game завершена! Победитель: ${winner.username} 🎉`, 'success'); }
-  else showToast(`Fast Game завершена! Победил: ${winner.username}`, 'info');
+  showWinner(winner.username, game.pot);
+  showToast(`Fast Game завершена! Победитель: ${winner.username} 🎉`, 'success');
   ls.set(K.FAST, games.filter(g => g.gameId !== gameId));
   refreshSidebar();
   renderFastGames();
@@ -575,11 +577,15 @@ function renderFastGames() {
   el.innerHTML = games.map(g => {
     const players = calcChances(g.bets);
     const canJoin = g.status === 'waiting' && !g.bets.find(b => b.userId === currentUser.id) && g.bets.length < g.maxPlayers;
+    const waitLeft = g.abandonAt ? Math.max(0, Math.ceil((g.abandonAt - Date.now()) / 1000)) : null;
+    const countLeft = g.endsAt ? formatTimer(g.endsAt - Date.now()) : null;
     return `<div class="room-card" ${canJoin ? `onclick="joinFastGame('${g.gameId}')"` : ''} style="${!canJoin ? 'opacity:0.7;cursor:default;' : ''}">
       <div class="room-card-id">${g.gameId}</div>
-      <div class="room-card-pot">🏆 ${(g.pot / 10).toFixed(0)} MDL</div>
-      <div class="room-card-info">Ставка: ${g.minBet.toFixed(1)}–${g.maxBet.toFixed(1)} MDL</div>
+      <div class="room-card-pot">🏆 ${formatCoins(g.pot)}</div>
+      <div class="room-card-info">Ставка: ${g.minBet}–${g.maxBet} 🪙</div>
       <div class="room-card-info">Игроков: ${g.bets.length} / ${g.maxPlayers}</div>
+      ${waitLeft !== null ? `<div class="room-card-info" style="color:var(--accent);">⏳ Ожидание: ${waitLeft}с</div>` : ''}
+      ${countLeft ? `<div class="room-card-info" style="color:var(--green);">▶ Старт через: ${countLeft}</div>` : ''}
       <div class="room-card-players">${players.map(p => `<div class="room-player-chip" style="border-color:${p.color}">${escHtml(p.username)}</div>`).join('')}</div>
     </div>`;
   }).join('');
@@ -590,27 +596,31 @@ function renderFastGames() {
 // ═══════════════════════════════════════════════════
 function get1vs1Games() { return ls.get(K.OVS, []); }
 
+// Currently active duel being animated
+let activeDuelId = null;
+let duelSpinInterval = null;
+
 function create1vs1() {
-  const amountMdl = parseFloat(document.getElementById('ovCreateAmount').value);
-  if (!amountMdl || amountMdl <= 0) return showToast('Введите сумму ставки', 'error');
+  const coins = parseInt(document.getElementById('ovCreateAmount').value);
+  if (!coins || coins <= 0) return showToast('Введите сумму ставки в монетах', 'error');
   const user = getUserById(currentUser.id);
-  const cost = mdlToCoins(amountMdl);
-  if (user.coins < cost) return showToast('Недостаточно монет', 'error');
+  if (user.coins < coins) return showToast('Недостаточно монет', 'error');
 
   const game = {
-    gameId: 'OV-' + genId(), status: 'waiting', minBet: amountMdl, maxBet: amountMdl,
-    bets: [{ userId: user.id, username: user.username, amount: cost, mdl: amountMdl, tickets: mdlToTickets(amountMdl), color: getColor(0), isBot: false }],
-    pot: cost, createdAt: Date.now()
+    gameId: 'OV-' + genId(), status: 'waiting',
+    bets: [{ userId: user.id, username: user.username, amount: coins, color: getColor(0) }],
+    pot: coins, createdAt: Date.now(),
+    abandonAt: Date.now() + 120000
   };
 
-  adjustCoins(user.id, -cost);
+  adjustCoins(user.id, -coins);
   const games = get1vs1Games();
   games.push(game);
   ls.set(K.OVS, games);
   document.getElementById('ovCreateAmount').value = '';
   refreshSidebar();
   render1vs1Games();
-  showToast('Дуэль создана! Ожидаем соперника...', 'success');
+  showToast('Дуэль создана! Ожидаем соперника... (120с)', 'success');
 }
 
 function join1vs1(gameId) {
@@ -622,67 +632,207 @@ function join1vs1(gameId) {
 
   const user = getUserById(currentUser.id);
   const cost = game.bets[0].amount;
-  const amountMdl = game.bets[0].mdl;
   if (user.coins < cost) return showToast('Недостаточно монет', 'error');
 
-  game.bets.push({ userId: user.id, username: user.username, amount: cost, mdl: amountMdl, tickets: mdlToTickets(amountMdl), color: getColor(1), isBot: false });
+  game.bets.push({ userId: user.id, username: user.username, amount: cost, color: getColor(1) });
   game.pot += cost;
   game.status = 'finishing';
+  game.abandonAt = null;
   adjustCoins(user.id, -cost);
 
   const idx = games.findIndex(g => g.gameId === gameId);
   games[idx] = game;
   ls.set(K.OVS, games);
   refreshSidebar();
-  render1vs1Games();
-  showToast('Вы приняли дуэль!', 'success');
-  setTimeout(() => finish1vs1(gameId), 2000);
-}
-
-function botJoin1vs1(gameId) {
-  const games = get1vs1Games();
-  const game = games.find(g => g.gameId === gameId);
-  if (!game || game.status !== 'waiting' || game.bets.length >= 2) return;
-  const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
-  const cost = game.bets[0].amount;
-  const amountMdl = game.bets[0].mdl;
-  game.bets.push({ userId: 'bot_' + botName, username: botName, amount: cost, mdl: amountMdl, tickets: mdlToTickets(amountMdl), color: getColor(1), isBot: true });
-  game.pot += cost;
-  game.status = 'finishing';
-  const idx = games.findIndex(g => g.gameId === gameId);
-  games[idx] = game;
-  ls.set(K.OVS, games);
-  render1vs1Games();
-  setTimeout(() => finish1vs1(gameId), 1500);
+  activeDuelId = gameId;
+  showDuelArena(game);
+  showToast('Дуэль началась! 🥊', 'success');
+  startDuelAnimation(game, () => finish1vs1(gameId));
 }
 
 function finish1vs1(gameId) {
   const games = get1vs1Games();
   const game = games.find(g => g.gameId === gameId);
-  if (!game || game.bets.length < 2) return;
+  if (!game) return;
+
+  if (game.bets.length < 2) {
+    // Abandon: refund
+    const b = game.bets[0];
+    if (b) {
+      adjustCoins(b.userId, b.amount);
+      if (b.userId === currentUser.id) {
+        refreshSidebar();
+        showToast('Соперник не появился. Ставка возвращена! 💸', 'info');
+      }
+    }
+    hideDuelArena();
+    ls.set(K.OVS, games.filter(g => g.gameId !== gameId));
+    render1vs1Games();
+    return;
+  }
+
   const winner = pickWinnerByTickets(game.bets);
   game.status = 'finished';
   game.winner = { ...winner, winAmount: game.pot };
-  recordGameResult(game.bets, winner.isBot ? null : winner.userId, game.pot);
+  recordGameResult(game.bets, winner.userId, game.pot);
   addToHistory({ ...game, type: '1vs1' });
-  if (!winner.isBot) { showWinner(winner.username, game.pot); showToast(`Дуэль завершена! Победитель: ${winner.username} 🎉`, 'success'); }
-  else showToast(`Дуэль завершена! Победил: ${winner.username}`, 'info');
+
+  // Show winner in duel arena
+  finalizeDuelAnimation(game, winner);
+  showWinner(winner.username, game.pot);
+  showToast(`Дуэль завершена! Победитель: ${winner.username} 🎉`, 'success');
+
   ls.set(K.OVS, games.filter(g => g.gameId !== gameId));
   refreshSidebar();
-  render1vs1Games();
+
+  setTimeout(() => {
+    hideDuelArena();
+    activeDuelId = null;
+    render1vs1Games();
+  }, 6000);
+}
+
+// ── 1vs1 Duel Arena UI ─────────────────────────────
+function showDuelArena(game) {
+  const arena = document.getElementById('duel-arena');
+  if (!arena) return;
+  const p1 = game.bets[0];
+  const p2 = game.bets[1] || null;
+
+  document.getElementById('duelLeftAvatar').textContent = p1.username[0].toUpperCase();
+  document.getElementById('duelLeftAvatar').style.background = p1.color;
+  document.getElementById('duelLeftName').textContent = p1.username;
+  document.getElementById('duelLeftBet').textContent = formatCoins(p1.amount);
+  document.getElementById('duelLeftChance').textContent = '50%';
+
+  if (p2) {
+    document.getElementById('duelRightAvatar').textContent = p2.username[0].toUpperCase();
+    document.getElementById('duelRightAvatar').style.background = p2.color;
+    document.getElementById('duelRightName').textContent = p2.username;
+    document.getElementById('duelRightBet').textContent = formatCoins(p2.amount);
+    document.getElementById('duelRightChance').textContent = '50%';
+  } else {
+    document.getElementById('duelRightAvatar').textContent = '?';
+    document.getElementById('duelRightAvatar').style.background = '#444';
+    document.getElementById('duelRightName').textContent = 'Ожидание...';
+    document.getElementById('duelRightBet').textContent = '---';
+    document.getElementById('duelRightChance').textContent = '--';
+  }
+
+  arena.style.display = 'flex';
+  document.getElementById('ovRoomsSection').style.display = 'none';
+}
+
+function hideDuelArena() {
+  const arena = document.getElementById('duel-arena');
+  if (arena) arena.style.display = 'none';
+  const rooms = document.getElementById('ovRoomsSection');
+  if (rooms) rooms.style.display = 'block';
+  if (duelSpinInterval) { clearInterval(duelSpinInterval); duelSpinInterval = null; }
+}
+
+const SPIN_CHARS = ['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P'];
+
+function startDuelAnimation(game, onComplete) {
+  const leftEl = document.getElementById('duelLeftAvatar');
+  const rightEl = document.getElementById('duelRightAvatar');
+  const vsEl = document.getElementById('duelVsText');
+  const p1 = game.bets[0];
+  const p2 = game.bets[1];
+
+  if (vsEl) vsEl.classList.add('vs-pulse');
+  leftEl.classList.add('avatar-spin');
+  rightEl.classList.add('avatar-spin');
+
+  let frame = 0;
+  const spinDuration = 3000;
+  const startTime = Date.now();
+
+  duelSpinInterval = setInterval(() => {
+    const elapsed = Date.now() - startTime;
+    const progress = Math.min(elapsed / spinDuration, 1);
+
+    // Slow down as we approach end
+    const interval = progress < 0.7 ? 80 : progress < 0.9 ? 150 : 250;
+
+    if (frame % Math.ceil(interval / 80) === 0) {
+      const rndL = SPIN_CHARS[Math.floor(Math.random() * SPIN_CHARS.length)];
+      const rndR = SPIN_CHARS[Math.floor(Math.random() * SPIN_CHARS.length)];
+      const rndColor1 = COLORS[Math.floor(Math.random() * COLORS.length)];
+      const rndColor2 = COLORS[Math.floor(Math.random() * COLORS.length)];
+      leftEl.textContent = rndL;
+      leftEl.style.background = rndColor1;
+      rightEl.textContent = rndR;
+      rightEl.style.background = rndColor2;
+    }
+    frame++;
+
+    if (elapsed >= spinDuration) {
+      clearInterval(duelSpinInterval);
+      duelSpinInterval = null;
+      leftEl.classList.remove('avatar-spin');
+      rightEl.classList.remove('avatar-spin');
+      if (vsEl) vsEl.classList.remove('vs-pulse');
+      // Restore player avatars
+      leftEl.textContent = p1.username[0].toUpperCase();
+      leftEl.style.background = p1.color;
+      rightEl.textContent = p2.username[0].toUpperCase();
+      rightEl.style.background = p2.color;
+      if (onComplete) onComplete();
+    }
+  }, 80);
+}
+
+function finalizeDuelAnimation(game, winner) {
+  const arena = document.getElementById('duel-arena');
+  if (!arena) return;
+  const p1 = game.bets[0];
+  const p2 = game.bets[1];
+  const isP1Winner = winner.userId === p1.userId;
+
+  const leftEl = document.getElementById('duelLeftAvatar');
+  const rightEl = document.getElementById('duelRightAvatar');
+  const leftChance = document.getElementById('duelLeftChance');
+  const rightChance = document.getElementById('duelRightChance');
+
+  if (isP1Winner) {
+    leftEl.classList.add('avatar-winner');
+    rightEl.classList.add('avatar-loser');
+    if (leftChance) leftChance.textContent = '🏆 Победа!';
+    if (rightChance) rightChance.textContent = '💔 Поражение';
+  } else {
+    rightEl.classList.add('avatar-winner');
+    leftEl.classList.add('avatar-loser');
+    if (rightChance) rightChance.textContent = '🏆 Победа!';
+    if (leftChance) leftChance.textContent = '💔 Поражение';
+  }
+  document.getElementById('duelTimer').textContent = `+${formatCoins(game.pot)}`;
 }
 
 function render1vs1Games() {
+  // Check if user is currently in an active duel (waiting for opponent)
   const games = get1vs1Games().filter(g => g.status !== 'finished');
+  const myWaitingGame = games.find(g => g.status === 'waiting' && g.bets.find(b => b.userId === currentUser.id));
+
+  if (myWaitingGame) {
+    showDuelArena(myWaitingGame);
+    const waitLeft = myWaitingGame.abandonAt ? Math.max(0, Math.ceil((myWaitingGame.abandonAt - Date.now()) / 1000)) : '--';
+    document.getElementById('duelTimer').textContent = `⏳ Ожидание соперника: ${waitLeft}с`;
+    return;
+  }
+
+  hideDuelArena();
+
   const el = document.getElementById('ovRooms');
-  if (!games.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">🥊</div>Нет активных дуэлей</div>'; return; }
-  el.innerHTML = games.map(g => {
-    const canJoin = g.status === 'waiting' && !g.bets.find(b => b.userId === currentUser.id);
-    return `<div class="room-card" ${canJoin ? `onclick="join1vs1('${g.gameId}')"` : ''} style="${!canJoin ? 'opacity:0.7;cursor:default;' : ''}">
+  const joinable = games.filter(g => g.status === 'waiting' && !g.bets.find(b => b.userId === currentUser.id));
+  if (!joinable.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">🥊</div>Нет активных дуэлей</div>'; return; }
+  el.innerHTML = joinable.map(g => {
+    const waitLeft = g.abandonAt ? Math.max(0, Math.ceil((g.abandonAt - Date.now()) / 1000)) : '--';
+    return `<div class="room-card" onclick="join1vs1('${g.gameId}')">
       <div class="room-card-id">${g.gameId}</div>
-      <div class="room-card-pot">🏆 ${(g.pot / 10).toFixed(0)} MDL</div>
-      <div class="room-card-info">Ставка: ${g.bets[0].mdl} MDL</div>
-      <div class="room-card-info">${g.bets.length === 1 ? 'Ждёт соперника...' : 'Финал!'}</div>
+      <div class="room-card-pot">🏆 ${formatCoins(g.pot * 2)}</div>
+      <div class="room-card-info">Ставка: ${formatCoins(g.bets[0].amount)}</div>
+      <div class="room-card-info" style="color:var(--accent);">⏳ ${waitLeft}с до отмены</div>
       <div class="room-card-players">${g.bets.map(p => `<div class="room-player-chip" style="border-color:${p.color}">${escHtml(p.username)}</div>`).join('')}</div>
     </div>`;
   }).join('');
@@ -692,12 +842,6 @@ function render1vs1Games() {
 // ── CHAT ───────────────────────────────────────────
 // ═══════════════════════════════════════════════════
 function getChat() { return ls.get(K.CHAT, []); }
-
-const BOT_CHAT_MSGS = [
-  'Удачи всем! 🍀', 'Ставлю на победу!', 'Кто со мной?', 'Сегодня мой день!',
-  'Большой банк! 💰', 'Давайте сыграем!', 'Отличная игра! 🎮', '🎰 Вперёд!',
-  'Шансы растут!', 'Главное — удача!', 'Победа близко! ⚡', 'Го в джекпот!'
-];
 
 function sendChatMessage() {
   const input = document.getElementById('chatInput');
@@ -710,16 +854,6 @@ function sendChatMessage() {
   if (chat.length > 100) chat.splice(0, chat.length - 100);
   ls.set(K.CHAT, chat);
   input.value = '';
-  renderChat();
-}
-
-function addBotChatMessage() {
-  const chat = getChat();
-  const botName = BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
-  const msg = BOT_CHAT_MSGS[Math.floor(Math.random() * BOT_CHAT_MSGS.length)];
-  chat.push({ id: genId(), userId: 'bot_' + botName, username: botName, message: msg, createdAt: Date.now() });
-  if (chat.length > 100) chat.splice(0, chat.length - 100);
-  ls.set(K.CHAT, chat);
   renderChat();
 }
 
@@ -779,7 +913,7 @@ function loadHistory() {
     return `<tr>
       <td style="font-size:0.75rem;color:var(--text-muted);">${g.gameId}</td>
       <td>${g.type || '-'}</td>
-      <td>${myBet ? myBet.mdl + ' MDL' : '-'}</td>
+      <td>${myBet ? formatCoins(myBet.amount) : '-'}</td>
       <td>${result}</td>
       <td style="color:var(--text-muted);font-size:0.78rem;">${new Date(g.createdAt).toLocaleDateString('ru-RU')}</td>
     </tr>`;
@@ -834,7 +968,7 @@ function applyPromo() {
 function depositCoins() {
   const mdl = parseFloat(document.getElementById('depositAmount').value);
   if (!mdl || mdl < 10) return showToast('Минимальная сумма: 10 MDL', 'error');
-  const coins = mdlToCoins(mdl);
+  const coins = Math.round(mdl * COINS_PER_MDL);
   adjustCoins(currentUser.id, coins);
   document.getElementById('depositAmount').value = '';
   refreshSidebar();
@@ -888,63 +1022,94 @@ let tickCount = 0;
 function gameTick() {
   tickCount++;
 
-  // Jackpot
+  // ── Jackpot ──
   const jp = getJackpot();
   if (!jp) { initJackpot(); }
   else if (jp.status === 'active') {
-    const secs = Math.max(0, Math.ceil((jp.endsAt - Date.now()) / 1000));
     const el = document.getElementById('jpTimer');
-    if (el) el.textContent = secs + 'с';
-    if (tickCount % 5 === 0 && Math.random() < 0.4) addBotToJackpot();
+    if (el) el.textContent = formatTimer(jp.endsAt - Date.now());
     if (Date.now() >= jp.endsAt) {
       const fresh = getJackpot();
       if (fresh && fresh.status === 'active') finishJackpot(fresh);
     }
+  } else if (jp.status === 'waiting' && jp.bets.length === 1) {
+    // Show waiting message in timer
+    const el = document.getElementById('jpTimer');
+    if (el) el.textContent = 'Ждём игрока...';
   }
 
-  // Battle
+  // ── Battle ──
   const bt = getBattle();
   if (!bt) { initBattle(); }
   else if (bt.status === 'active') {
-    const secs = Math.max(0, Math.ceil((bt.endsAt - Date.now()) / 1000));
     const el = document.getElementById('bgTimer');
-    if (el) el.textContent = secs + 'с';
-    if (tickCount % 6 === 0 && Math.random() < 0.35) addBotToBattle();
+    if (el) el.textContent = formatTimer(bt.endsAt - Date.now());
     if (Date.now() >= bt.endsAt) {
       const fresh = getBattle();
       if (fresh && fresh.status === 'active') finishBattle(fresh);
     }
+  } else if (bt.status === 'waiting' && bt.bets.length > 0) {
+    const hasBoth = bt.bets.some(b => b.side === 'blue') && bt.bets.some(b => b.side === 'red');
+    const el = document.getElementById('bgTimer');
+    if (el) el.textContent = hasBoth ? 'Ждём...' : 'Ждём игрока...';
   }
 
-  // Fast Game bots
-  if (tickCount % 8 === 0) {
-    getFastGames().forEach(g => {
-      if (g.status === 'waiting' && g.bets.length < g.maxPlayers && Math.random() < 0.5) addBotToFastGame(g.gameId);
+  // ── Fast Game: abandon single-player games on timeout ──
+  if (tickCount % 5 === 0) {
+    const fastGames = getFastGames();
+    let changed = false;
+    fastGames.forEach(g => {
+      if (g.status === 'waiting' && g.abandonAt && Date.now() >= g.abandonAt && g.bets.length < 2) {
+        finishFastGame(g.gameId);
+        changed = true;
+      } else if (g.status === 'active' && g.endsAt && Date.now() >= g.endsAt) {
+        g.status = 'finishing';
+        const idx = fastGames.findIndex(x => x.gameId === g.gameId);
+        fastGames[idx] = g;
+        ls.set(K.FAST, fastGames);
+        setTimeout(() => finishFastGame(g.gameId), 1500);
+        changed = true;
+      }
     });
+    if (changed) renderFastGames();
   }
 
-  // 1vs1 bots
-  if (tickCount % 10 === 0) {
-    get1vs1Games().forEach(g => {
-      if (g.status === 'waiting' && g.bets.length < 2 && Math.random() < 0.6) botJoin1vs1(g.gameId);
+  // ── 1vs1: abandon single-player duels on timeout ──
+  if (tickCount % 5 === 0) {
+    const ovGames = get1vs1Games();
+    ovGames.forEach(g => {
+      if (g.status === 'waiting' && g.abandonAt && Date.now() >= g.abandonAt && g.bets.length < 2) {
+        finish1vs1(g.gameId);
+      }
     });
+    // Update waiting duel timer in arena
+    if (activeDuelId) {
+      const activeG = get1vs1Games().find(g => g.gameId === activeDuelId);
+      if (activeG && activeG.abandonAt) {
+        const waitLeft = Math.max(0, Math.ceil((activeG.abandonAt - Date.now()) / 1000));
+        const timerEl = document.getElementById('duelTimer');
+        if (timerEl) timerEl.textContent = `⏳ Ожидание соперника: ${waitLeft}с`;
+      }
+    }
   }
 
-  // Bot chat
-  if (tickCount % 22 === 0 && Math.random() < 0.4) addBotChatMessage();
-}
+  // ── Update Fast Game countdowns ──
+  if (tickCount % 2 === 0) {
+    const fgView = document.getElementById('game-fast');
+    if (fgView && fgView.classList.contains('active')) renderFastGames();
+  }
 
-// ── Demo / initial data setup ──────────────────────
-function ensureDemoData() {
-  const chat = getChat();
-  if (chat.length === 0) {
-    const seed = [
-      { username: 'Alex_Pro', message: 'Привет всем! 👋' },
-      { username: 'LuckyBot', message: 'Удачи в играх! 🍀' },
-      { username: 'GoldRush', message: 'Большой банк сегодня 💰' }
-    ];
-    seed.forEach((m, i) => chat.push({ id: genId(), userId: 'bot_' + m.username, username: m.username, message: m.message, createdAt: Date.now() - (seed.length - i) * 15000 }));
-    ls.set(K.CHAT, chat);
+  // ── Update 1vs1 countdown for waiting creator ──
+  if (tickCount % 2 === 0) {
+    const ovView = document.getElementById('game-1vs1');
+    if (ovView && ovView.classList.contains('active')) {
+      const myWaiting = get1vs1Games().find(g => g.status === 'waiting' && g.bets.find(b => b.userId === currentUser.id));
+      if (myWaiting && myWaiting.abandonAt) {
+        const waitLeft = Math.max(0, Math.ceil((myWaiting.abandonAt - Date.now()) / 1000));
+        const timerEl = document.getElementById('duelTimer');
+        if (timerEl) timerEl.textContent = `⏳ Ожидание соперника: ${waitLeft}с`;
+      }
+    }
   }
 }
 
@@ -957,7 +1122,6 @@ function ensureDemoData() {
   currentUser = user;
 
   updateSidebar(user);
-  ensureDemoData();
 
   if (!getJackpot()) initJackpot();
   if (!getBattle()) initBattle();
