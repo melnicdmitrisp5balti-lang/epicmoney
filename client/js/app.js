@@ -703,8 +703,8 @@ function sendChatMessage() {
   const input = document.getElementById('chatInput');
   const raw = input.value.trim();
   if (!raw) return;
-  // Sanitize message before storage to prevent XSS if rendering context changes
-  const message = raw.replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c])).slice(0, 500);
+  // Sanitize message before storage using escHtml (prevents XSS if rendering context changes)
+  const message = escHtml(raw).slice(0, 500);
   const chat = getChat();
   chat.push({ id: genId(), userId: currentUser.id, username: currentUser.username, message, createdAt: Date.now() });
   if (chat.length > 100) chat.splice(0, chat.length - 100);
@@ -867,8 +867,8 @@ function loadReferral() {
   const user = getUserById(currentUser.id);
   const code = user?.referralCode || '-';
   document.getElementById('refCode').textContent = code;
-  const base = window.location.href.replace(/\/index\.html.*$/, '');
-  document.getElementById('refLink').textContent = base + '/register.html?ref=' + code;
+  const basePath = window.location.pathname.replace(/\/[^/]*$/, '');
+  document.getElementById('refLink').textContent = window.location.origin + basePath + '/register.html?ref=' + code;
 }
 
 function copyRefCode() {
