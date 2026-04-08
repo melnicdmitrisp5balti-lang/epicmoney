@@ -530,3 +530,78 @@ html, body {
   border-radius: 20px; padding: 8px 20px;
   font-size: 1rem; font-weight: 700; color: var(--accent); letter-spacing: 1px;
 }
+
+/* ─── 1vs1 Games List ───────────────────────────── */
+.ovs-create-form {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px;
+  display: flex; flex-direction: column; gap: 10px;
+  margin-bottom: 18px;
+}
+.ovs-create-btn {
+  width: 100%; padding: 12px; font-size: 1rem;
+}
+.ovs-section-title {
+  font-size: 0.78rem; font-weight: 700; letter-spacing: 1px;
+  color: var(--text-muted); margin-bottom: 10px;
+  padding-left: 2px;
+}
+.ovs-card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px 16px; margin-bottom: 10px;
+}
+.ovs-card-pot {
+  font-size: 0.85rem; color: var(--accent); font-weight: 700;
+  margin-bottom: 12px;
+}
+.ovs-players {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 14px;
+}
+.ovs-player {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 6px; flex: 1; min-width: 0;
+}
+.ovs-avatar {
+  width: 56px; height: 56px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.4rem; font-weight: 800; color: #0d0f14;
+  border: 2px solid var(--border); flex-shrink: 0;
+}
+.ovs-avatar-empty {
+  background: #2a2f3e !important;
+  color: var(--text-dim);
+  border-style: dashed;
+}
+.ovs-player-name {
+  font-size: 0.82rem; font-weight: 700; color: var(--text);
+  text-align: center; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; max-width: 90px;
+}
+.ovs-player-chance {
+  font-size: 0.78rem; font-weight: 700; color: var(--accent);
+}
+.ovs-player-bet {
+  font-size: 0.75rem; color: var(--text-muted); text-align: center;
+}
+.ovs-vs-text {
+  font-size: 1.4rem; font-weight: 900; color: var(--red);
+  text-shadow: 0 0 12px rgba(255,74,74,0.5);
+  flex-shrink: 0; letter-spacing: -1px;
+}
+.ovs-action-btn {
+  width: 100%; padding: 10px; font-size: 0.9rem;
+}
+.ovs-waiting-text {
+  text-align: center; color: var(--text-muted);
+  font-size: 0.82rem; padding: 8px 0;
+}
+.ovs-history-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: 8px;
+  margin-bottom: 6px;
+}
+.ovs-history-main { display: flex; flex-direction: column; gap: 2px; }
+.ovs-history-players { font-size: 0.88rem; font-weight: 600; color: var(--text); }
+.ovs-history-bet { font-size: 0.78rem; color: var(--text-muted); }

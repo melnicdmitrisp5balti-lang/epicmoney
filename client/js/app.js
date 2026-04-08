@@ -692,10 +692,10 @@ function finish1vs1(gameId) {
   }, 6000);
 }
 
-// ── 1vs1 Duel Arena UI ─────────────────────────────
+// ── 1vs1 Duel Screen UI ────────────────────────────
 function showDuelArena(game) {
-  const arena = document.getElementById('duel-arena');
-  if (!arena) return;
+  const screen = document.getElementById('duel-screen');
+  if (!screen) return;
   const p1 = game.bets[0];
   const p2 = game.bets[1] || null;
 
@@ -719,16 +719,22 @@ function showDuelArena(game) {
     document.getElementById('duelRightChance').textContent = '--';
   }
 
-  arena.style.display = 'flex';
+  screen.style.display = 'block';
   document.getElementById('ovRoomsSection').style.display = 'none';
 }
 
 function hideDuelArena() {
-  const arena = document.getElementById('duel-arena');
-  if (arena) arena.style.display = 'none';
+  const screen = document.getElementById('duel-screen');
+  if (screen) screen.style.display = 'none';
   const rooms = document.getElementById('ovRoomsSection');
   if (rooms) rooms.style.display = 'block';
   if (duelSpinInterval) { clearInterval(duelSpinInterval); duelSpinInterval = null; }
+}
+
+function exitDuelScreen() {
+  hideDuelArena();
+  activeDuelId = null;
+  render1vs1Games();
 }
 
 const SPIN_CHARS = ['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P'];
@@ -784,8 +790,8 @@ function startDuelAnimation(game, onComplete) {
 }
 
 function finalizeDuelAnimation(game, winner) {
-  const arena = document.getElementById('duel-arena');
-  if (!arena) return;
+  const screen = document.getElementById('duel-screen');
+  if (!screen) return;
   const p1 = game.bets[0];
   const p2 = game.bets[1];
   const isP1Winner = winner.userId === p1.userId;
@@ -810,33 +816,98 @@ function finalizeDuelAnimation(game, winner) {
 }
 
 function render1vs1Games() {
-  // Check if user is currently in an active duel (waiting for opponent)
   const games = get1vs1Games().filter(g => g.status !== 'finished');
-  const myWaitingGame = games.find(g => g.status === 'waiting' && g.bets.find(b => b.userId === currentUser.id));
+  const el = document.getElementById('ovRooms');
 
-  if (myWaitingGame) {
-    showDuelArena(myWaitingGame);
-    const waitLeft = myWaitingGame.abandonAt ? Math.max(0, Math.ceil((myWaitingGame.abandonAt - Date.now()) / 1000)) : '--';
-    document.getElementById('duelTimer').textContent = `⏳ Ожидание соперника: ${waitLeft}с`;
-    return;
+  if (!games.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">🥊</div>Нет активных дуэлей</div>';
+  } else {
+    el.innerHTML = games.map(renderOvs1vs1Card).join('');
   }
 
-  hideDuelArena();
+  renderOvs1vs1History();
+}
 
-  const el = document.getElementById('ovRooms');
-  const joinable = games.filter(g => g.status === 'waiting' && !g.bets.find(b => b.userId === currentUser.id));
-  if (!joinable.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">🥊</div>Нет активных дуэлей</div>'; return; }
-  el.innerHTML = joinable.map(g => {
-    const waitLeft = g.abandonAt ? Math.max(0, Math.ceil((g.abandonAt - Date.now()) / 1000)) : '--';
-    return `<div class="room-card" onclick="join1vs1('${g.gameId}')">
-      <div class="room-card-id">${g.gameId}</div>
-      <div class="room-card-pot">🏆 ${formatCoins(g.pot * 2)}</div>
-      <div class="room-card-info">Ставка: ${formatCoins(g.bets[0].amount)}</div>
-      <div class="room-card-info" style="color:var(--accent);">⏳ ${waitLeft}с до отмены</div>
-      <div class="room-card-players">${g.bets.map(p => `<div class="room-player-chip" style="border-color:${p.color}">${escHtml(p.username)}</div>`).join('')}</div>
+function renderOvs1vs1Card(g) {
+  const p1 = g.bets[0];
+  const p2 = g.bets[1] || null;
+  const isMyGame = g.bets.some(b => b.userId === currentUser.id);
+  const isCreator = p1 && p1.userId === currentUser.id;
+  const canJoin = !isMyGame && g.status === 'waiting';
+  const bothIn = g.bets.length >= 2;
+  const waitLeft = g.abandonAt ? Math.max(0, Math.ceil((g.abandonAt - Date.now()) / 1000)) : '--';
+
+  const leftSlot = `<div class="ovs-player">
+    <div class="ovs-avatar" style="background:${p1.color}">${escHtml(p1.username[0].toUpperCase())}</div>
+    <div class="ovs-player-name">${escHtml(p1.username)}</div>
+    <div class="ovs-player-chance">50%</div>
+    <div class="ovs-player-bet">Поставил: ${formatCoins(p1.amount)}</div>
+  </div>`;
+
+  const rightSlot = p2
+    ? `<div class="ovs-player">
+        <div class="ovs-avatar" style="background:${p2.color}">${escHtml(p2.username[0].toUpperCase())}</div>
+        <div class="ovs-player-name">${escHtml(p2.username)}</div>
+        <div class="ovs-player-chance">50%</div>
+        <div class="ovs-player-bet">Поставил: ${formatCoins(p2.amount)}</div>
+      </div>`
+    : `<div class="ovs-player">
+        <div class="ovs-avatar ovs-avatar-empty">?</div>
+        <div class="ovs-player-name">Ожидание...</div>
+        <div class="ovs-player-chance">--</div>
+        <div class="ovs-player-bet">Ставка: ${formatCoins(p1.amount)}</div>
+      </div>`;
+
+  let actionBtn = '';
+  if (canJoin) {
+    actionBtn = `<button class="btn btn-accent ovs-action-btn" onclick="join1vs1('${g.gameId}')">Присоединиться</button>`;
+  } else if (bothIn) {
+    actionBtn = `<button class="btn btn-accent ovs-action-btn" onclick="viewGame1vs1('${g.gameId}')">Посмотреть игру</button>`;
+  } else if (isCreator && g.status === 'waiting') {
+    actionBtn = `<div class="ovs-waiting-text">⏳ Ожидание соперника: ${waitLeft}с</div>`;
+  }
+
+  return `<div class="ovs-card">
+    <div class="ovs-card-pot">🏆 Банк: ${formatCoins(g.pot)}</div>
+    <div class="ovs-players">${leftSlot}<div class="ovs-vs-text">VS</div>${rightSlot}</div>
+    ${actionBtn}
+  </div>`;
+}
+
+function renderOvs1vs1History() {
+  const el = document.getElementById('ovMyHistory');
+  if (!el) return;
+  const history = ls.get(K.HISTORY, [])
+    .filter(g => g.type === '1vs1' && g.bets && g.bets.some(b => b.userId === currentUser.id))
+    .reverse().slice(0, 5);
+  if (!history.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div>История пуста</div>';
+    return;
+  }
+  el.innerHTML = history.map(g => {
+    const myBet = g.bets.find(b => b.userId === currentUser.id);
+    const isWon = g.winner && g.winner.userId === currentUser.id;
+    const opponent = g.bets.find(b => b.userId !== currentUser.id);
+    return `<div class="ovs-history-item">
+      <div class="ovs-history-main">
+        <div class="ovs-history-players">vs ${opponent ? escHtml(opponent.username) : '?'}</div>
+        <div class="ovs-history-bet">Ставка: ${formatCoins(myBet ? myBet.amount : 0)}</div>
+      </div>
+      <div class="${isWon ? 'won-badge' : 'lost-badge'}">${isWon ? '+' + formatCoins(g.winner.winAmount) : 'Проигрыш'}</div>
     </div>`;
   }).join('');
 }
+
+function viewGame1vs1(gameId) {
+  const game = get1vs1Games().find(g => g.gameId === gameId);
+  if (!game) return;
+  activeDuelId = gameId;
+  showDuelArena(game);
+  if (game.bets.length >= 2 && game.status === 'finishing') {
+    document.getElementById('duelTimer').textContent = '⏳ Определяем победителя...';
+  }
+}
+
 
 // ═══════════════════════════════════════════════════
 // ── CHAT ───────────────────────────────────────────
@@ -1082,7 +1153,7 @@ function gameTick() {
         finish1vs1(g.gameId);
       }
     });
-    // Update waiting duel timer in arena
+    // Update waiting duel screen timer if active
     if (activeDuelId) {
       const activeG = get1vs1Games().find(g => g.gameId === activeDuelId);
       if (activeG && activeG.abandonAt) {
@@ -1099,15 +1170,14 @@ function gameTick() {
     if (fgView && fgView.classList.contains('active')) renderFastGames();
   }
 
-  // ── Update 1vs1 countdown for waiting creator ──
+  // ── Update 1vs1 game cards (when list is visible) ──
   if (tickCount % 2 === 0) {
     const ovView = document.getElementById('game-1vs1');
     if (ovView && ovView.classList.contains('active')) {
-      const myWaiting = get1vs1Games().find(g => g.status === 'waiting' && g.bets.find(b => b.userId === currentUser.id));
-      if (myWaiting && myWaiting.abandonAt) {
-        const waitLeft = Math.max(0, Math.ceil((myWaiting.abandonAt - Date.now()) / 1000));
-        const timerEl = document.getElementById('duelTimer');
-        if (timerEl) timerEl.textContent = `⏳ Ожидание соперника: ${waitLeft}с`;
+      const duelScreen = document.getElementById('duel-screen');
+      const isScreenVisible = duelScreen && duelScreen.style.display !== 'none';
+      if (!isScreenVisible) {
+        render1vs1Games();
       }
     }
   }
