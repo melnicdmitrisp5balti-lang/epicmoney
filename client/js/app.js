@@ -777,7 +777,7 @@ function renderFastGameCard(g) {
   const isMyGame = g.bets.some(b => b.userId === currentUser.id);
   const isFull = g.bets.length >= g.maxPlayers;
   const canJoin = !isMyGame && !isFull && (g.status === 'waiting' || g.status === 'active');
-  const waitLeft = g.abandonAt ? Math.max(0, Math.ceil((g.abandonAt - Date.now()) / 1000)) : '--';
+  const waitLeft = g.abandonAt ? Math.max(0, Math.ceil((g.abandonAt - Date.now()) / 1000)).toString() : '--';
 
   const playerSlots = Array.from({ length: g.maxPlayers }, (_, i) => {
     const p = g.bets[i];
