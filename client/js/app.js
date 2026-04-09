@@ -138,6 +138,8 @@ function updateSidebar(user) {
   document.getElementById('sidebarUsername').textContent = user.username;
   document.getElementById('sidebarCoins').textContent = formatCoins(user.coins);
   document.getElementById('sidebarMdl').textContent = coinsToMdl(user.coins).toFixed(1) + ' MDL';
+  const adminLink = document.getElementById('adminPanelLink');
+  if (adminLink) adminLink.style.display = user.isAdmin ? '' : 'none';
 }
 
 function refreshSidebar() {
