@@ -1,12 +1,8 @@
 const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  console.error('FATAL: JWT_SECRET environment variable is not set');
-  process.exit(1);
-}
 
-module.exports = function authMiddleware(req, res, next) {
+module.exports = function adminMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'No token provided' });
@@ -14,10 +10,10 @@ module.exports = function authMiddleware(req, res, next) {
   const token = authHeader.split(' ')[1];
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    if (decoded.isAdmin) {
-      return res.status(403).json({ error: 'Use admin token for admin routes only' });
+    if (!decoded.isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
     }
-    req.user = decoded;
+    req.admin = decoded;
     next();
   } catch {
     return res.status(401).json({ error: 'Invalid or expired token' });
