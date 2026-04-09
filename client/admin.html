@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EpicMoney – Админ Панель</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/admin.css" />
+</head>
+<body>
+
+<!-- Toast container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- Confirm Dialog -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal" style="max-width:380px">
+    <div class="modal-header">
+      <h3 id="confirmTitle">Подтверждение</h3>
+      <button class="modal-close" onclick="closeModal('confirmModal')">×</button>
+    </div>
+    <div class="modal-body">
+      <p id="confirmMsg" style="color:var(--text-muted);font-size:0.9rem;line-height:1.5"></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('confirmModal')">Отмена</button>
+      <button class="btn btn-danger" id="confirmOkBtn">Подтвердить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Give Coins Modal -->
+<div class="modal-overlay" id="giveCoinsModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>💰 Выдать монеты</h3>
+      <button class="modal-close" onclick="closeModal('giveCoinsModal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="giveCoinsUserInfo" style="background:var(--bg-dark);border-radius:8px;padding:12px;margin-bottom:14px;font-size:0.88rem;"></div>
+      <div class="form-group">
+        <label>Количество монет</label>
+        <input type="number" class="form-input" id="giveCoinsAmount" min="1" placeholder="Введите сумму" />
+      </div>
+      <div class="form-group">
+        <label>Причина</label>
+        <input type="text" class="form-input" id="giveCoinsReason" placeholder="Причина выдачи (необязательно)" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('giveCoinsModal')">Отмена</button>
+      <button class="btn btn-accent" onclick="submitGiveCoins()">Выдать монеты</button>
+    </div>
+  </div>
+</div>
+
+<!-- Balance Change Modal -->
+<div class="modal-overlay" id="balanceModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>💳 Изменить баланс</h3>
+      <button class="modal-close" onclick="closeModal('balanceModal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Пользователь</label>
+        <select class="form-select" id="balanceUserId" onchange="onBalanceUserChange()"></select>
+      </div>
+      <div id="balanceCurrentInfo" style="background:var(--bg-dark);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:0.88rem;display:none;"></div>
+      <div class="form-group">
+        <label>Операция</label>
+        <select class="form-select" id="balanceOp">
+          <option value="add">➕ Пополнить</option>
+          <option value="sub">➖ Снять</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Сумма монет</label>
+        <input type="number" class="form-input" id="balanceAmount" min="1" placeholder="Введите сумму" />
+      </div>
+      <div class="form-group">
+        <label>Причина</label>
+        <input type="text" class="form-input" id="balanceReason" placeholder="Комментарий к операции" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('balanceModal')">Отмена</button>
+      <button class="btn btn-accent" onclick="submitBalanceChange()">Применить</button>
+    </div>
+  </div>
+</div>
+
+<!-- View User Modal -->
+<div class="modal-overlay" id="viewUserModal">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <h3>👤 Информация о пользователе</h3>
+      <button class="modal-close" onclick="closeModal('viewUserModal')">×</button>
+    </div>
+    <div class="modal-body" id="viewUserBody"></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('viewUserModal')">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<!-- View Game Modal -->
+<div class="modal-overlay" id="viewGameModal">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <h3>🎮 Информация об игре</h3>
+      <button class="modal-close" onclick="closeModal('viewGameModal')">×</button>
+    </div>
+    <div class="modal-body" id="viewGameBody"></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('viewGameModal')">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<!-- Promo Create/Edit Modal -->
+<div class="modal-overlay" id="promoModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="promoModalTitle">🎟️ Создать промокод</h3>
+      <button class="modal-close" onclick="closeModal('promoModal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Код промокода</label>
+        <div style="display:flex;gap:8px;">
+          <input type="text" class="form-input" id="promoCode" placeholder="PROMO2025" style="text-transform:uppercase;" />
+          <button class="btn btn-outline btn-sm" onclick="genPromoCode()" style="white-space:nowrap">Авто</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Тип вознаграждения</label>
+        <select class="form-select" id="promoType">
+          <option value="coins">💰 Монеты (фиксированно)</option>
+          <option value="percent">% Процент от ставки</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Значение</label>
+        <input type="number" class="form-input" id="promoValue" min="1" placeholder="Например: 100" />
+      </div>
+      <div class="form-group">
+        <label>Лимит использований (0 = безлимит)</label>
+        <input type="number" class="form-input" id="promoLimit" min="0" value="0" />
+      </div>
+      <div class="form-group">
+        <label>Дата истечения (необязательно)</label>
+        <input type="date" class="form-input" id="promoExpiry" />
+      </div>
+      <div class="form-group">
+        <label>Минимальная сумма для использования</label>
+        <input type="number" class="form-input" id="promoMinBet" min="0" value="0" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('promoModal')">Отмена</button>
+      <button class="btn btn-accent" onclick="submitPromo()" id="promoSubmitBtn">Создать</button>
+    </div>
+  </div>
+</div>
+
+<!-- Warn/Mute User Modal -->
+<div class="modal-overlay" id="moderateModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="moderateModalTitle">⚠️ Действие модерации</h3>
+      <button class="modal-close" onclick="closeModal('moderateModal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="moderateUserInfo" style="background:var(--bg-dark);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:0.88rem;"></div>
+      <div class="form-group" id="muteDurationGroup" style="display:none">
+        <label>Длительность мьюта (часов)</label>
+        <input type="number" class="form-input" id="muteDuration" min="1" value="24" />
+      </div>
+      <div class="form-group">
+        <label>Причина</label>
+        <textarea class="form-input" id="moderateReason" rows="3" placeholder="Укажите причину..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('moderateModal')">Отмена</button>
+      <button class="btn btn-accent" onclick="submitModeration()" id="moderateSubmitBtn">Применить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Forbidden Word Modal -->
+<div class="modal-overlay" id="wordModal">
+  <div class="modal" style="max-width:380px">
+    <div class="modal-header">
+      <h3>🚫 Добавить слово</h3>
+      <button class="modal-close" onclick="closeModal('wordModal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Слово/фраза</label>
+        <input type="text" class="form-input" id="newWordInput" placeholder="Введите слово" />
+      </div>
+      <div class="form-group">
+        <label>Действие</label>
+        <select class="form-select" id="newWordAction">
+          <option value="hide">Скрыть сообщение</option>
+          <option value="warn">Предупреждение</option>
+          <option value="ban">Блокировка</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('wordModal')">Отмена</button>
+      <button class="btn btn-accent" onclick="submitWord()">Добавить</button>
+    </div>
+  </div>
+</div>
+
+<div class="admin-layout" id="adminLayout">
+
+  <!-- ═══ ADMIN SIDEBAR ═══════════════════════════════════════ -->
+  <aside class="admin-sidebar">
+    <div class="admin-sidebar-header">
+      <div class="admin-logo">🛡️</div>
+      <div class="admin-title">ADMIN PANEL</div>
+      <div class="admin-subtitle">EpicMoney</div>
+    </div>
+
+    <nav class="admin-nav">
+      <div class="admin-nav-section">Обзор</div>
+      <div class="admin-nav-item active" data-section="dashboard" onclick="showAdminSection('dashboard')">
+        <span class="nav-icon">📊</span><span>Статистика</span>
+      </div>
+
+      <div class="admin-nav-section">Управление</div>
+      <div class="admin-nav-item" data-section="users" onclick="showAdminSection('users')">
+        <span class="nav-icon">👥</span><span>Пользователи</span>
+      </div>
+      <div class="admin-nav-item" data-section="balances" onclick="showAdminSection('balances')">
+        <span class="nav-icon">💰</span><span>Балансы</span>
+      </div>
+      <div class="admin-nav-item" data-section="games" onclick="showAdminSection('games')">
+        <span class="nav-icon">🎮</span><span>Игры</span>
+      </div>
+      <div class="admin-nav-item" data-section="promos" onclick="showAdminSection('promos')">
+        <span class="nav-icon">🎟️</span><span>Промокоды</span>
+      </div>
+
+      <div class="admin-nav-section">Мониторинг</div>
+      <div class="admin-nav-item" data-section="logs" onclick="showAdminSection('logs')">
+        <span class="nav-icon">📝</span><span>Логи</span>
+      </div>
+      <div class="admin-nav-item" data-section="moderation" onclick="showAdminSection('moderation')">
+        <span class="nav-icon">🚫</span><span>Модерация</span>
+      </div>
+
+      <div class="admin-nav-section">Система</div>
+      <div class="admin-nav-item" data-section="settings" onclick="showAdminSection('settings')">
+        <span class="nav-icon">⚙️</span><span>Настройки</span>
+      </div>
+    </nav>
+
+    <div class="admin-sidebar-footer">
+      <div class="admin-user-info">Вошли как <strong id="adminUserName">admin</strong></div>
+      <button class="logout-btn" onclick="adminLogout()">🚪 Выйти из панели</button>
+    </div>
+  </aside>
+
+  <!-- ═══ ADMIN MAIN ════════════════════════════════════════ -->
+  <main class="admin-main">
+
+    <!-- ══ DASHBOARD ══════════════════════════════ -->
+    <div class="admin-section active" id="section-dashboard">
+      <div class="section-header">
+        <div>
+          <h2>📊 Статистика</h2>
+          <p>Общий обзор системы</p>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="renderDashboard()">🔄 Обновить</button>
+      </div>
+
+      <div class="stats-grid" id="dashboardStats"></div>
+
+      <div class="dashboard-charts">
+        <div class="chart-card">
+          <h3>📈 Активность по часам (сегодня)</h3>
+          <div class="bar-chart" id="activityChart"></div>
+          <div class="bar-label" id="activityChartLabels"></div>
+        </div>
+        <div class="chart-card">
+          <h3>🎮 Статистика по типам игр</h3>
+          <div id="gameTypeStats"></div>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <h3>💰 Последние выплаты</h3>
+        <div id="recentPayouts"></div>
+      </div>
+    </div>
+
+    <!-- ══ USERS ══════════════════════════════════ -->
+    <div class="admin-section" id="section-users">
+      <div class="section-header">
+        <div>
+          <h2>👥 Пользователи</h2>
+          <p>Управление аккаунтами</p>
+        </div>
+      </div>
+      <div class="admin-table-wrap">
+        <div class="admin-table-toolbar">
+          <input type="text" class="admin-search" id="userSearch" placeholder="🔍 Поиск по нику или email..." oninput="renderUsersTable()" />
+          <select class="admin-filter-select" id="userStatusFilter" onchange="renderUsersTable()">
+            <option value="">Все статусы</option>
+            <option value="active">Активные</option>
+            <option value="banned">Заблокированные</option>
+          </select>
+          <select class="admin-filter-select" id="userSortBy" onchange="renderUsersTable()">
+            <option value="createdAt">По дате регистрации</option>
+            <option value="coins">По балансу</option>
+            <option value="gamesPlayed">По играм</option>
+          </select>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Ник</th>
+                <th>Email</th>
+                <th>Баланс</th>
+                <th>Игр</th>
+                <th>Статус</th>
+                <th>Регистрация</th>
+                <th>Действия</th>
+              </tr>
+            </thead>
+            <tbody id="usersTableBody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="usersPagination"></div>
+      </div>
+    </div>
+
+    <!-- ══ BALANCES ════════════════════════════════ -->
+    <div class="admin-section" id="section-balances">
+      <div class="section-header">
+        <div>
+          <h2>💰 Управление балансами</h2>
+          <p>Пополнение и снятие монет</p>
+        </div>
+        <button class="btn btn-accent btn-sm" onclick="openBalanceModal()">➕ Изменить баланс</button>
+      </div>
+      <div class="admin-table-wrap">
+        <div class="admin-table-toolbar">
+          <input type="text" class="admin-search" id="balanceSearch" placeholder="🔍 Поиск по нику..." oninput="renderBalanceLog()" />
+          <select class="admin-filter-select" id="balanceOpFilter" onchange="renderBalanceLog()">
+            <option value="">Все операции</option>
+            <option value="add">Пополнения</option>
+            <option value="sub">Снятия</option>
+          </select>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Время</th>
+                <th>Пользователь</th>
+                <th>Операция</th>
+                <th>Сумма</th>
+                <th>Причина</th>
+                <th>Администратор</th>
+              </tr>
+            </thead>
+            <tbody id="balanceLogBody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="balancePagination"></div>
+      </div>
+    </div>
+
+    <!-- ══ GAMES ═══════════════════════════════════ -->
+    <div class="admin-section" id="section-games">
+      <div class="section-header">
+        <div>
+          <h2>🎮 Управление играми</h2>
+          <p>Активные и завершённые игры</p>
+        </div>
+      </div>
+      <div class="admin-table-wrap">
+        <div class="admin-table-toolbar">
+          <select class="admin-filter-select" id="gameTypeFilter" onchange="renderGamesTable()">
+            <option value="">Все типы</option>
+            <option value="jackpot">Jackpot</option>
+            <option value="battle">Battle</option>
+            <option value="fast">Fast</option>
+            <option value="1vs1">1vs1</option>
+          </select>
+          <select class="admin-filter-select" id="gameStatusFilter" onchange="renderGamesTable()">
+            <option value="">Все статусы</option>
+            <option value="waiting">Ожидание</option>
+            <option value="active">В процессе</option>
+            <option value="finished">Завершена</option>
+          </select>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Тип</th>
+                <th>Банк</th>
+                <th>Игроки</th>
+                <th>Статус</th>
+                <th>Создана</th>
+                <th>Действия</th>
+              </tr>
+            </thead>
+            <tbody id="gamesTableBody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="gamesPagination"></div>
+      </div>
+    </div>
+
+    <!-- ══ PROMOS ══════════════════════════════════ -->
+    <div class="admin-section" id="section-promos">
+      <div class="section-header">
+        <div>
+          <h2>🎟️ Промокоды</h2>
+          <p>Создание и управление промокодами</p>
+        </div>
+        <button class="btn btn-accent btn-sm" onclick="openPromoModal()">➕ Создать промокод</button>
+      </div>
+      <div class="admin-table-wrap">
+        <div class="admin-table-toolbar">
+          <input type="text" class="admin-search" id="promoSearch" placeholder="🔍 Поиск по коду..." oninput="renderPromosTable()" />
+          <select class="admin-filter-select" id="promoStatusFilter" onchange="renderPromosTable()">
+            <option value="">Все статусы</option>
+            <option value="active">Активные</option>
+            <option value="inactive">Неактивные</option>
+          </select>
+          <select class="admin-filter-select" id="promoTypeFilter" onchange="renderPromosTable()">
+            <option value="">Все типы</option>
+            <option value="coins">Монеты</option>
+            <option value="percent">Процент</option>
+          </select>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Код</th>
+                <th>Тип</th>
+                <th>Значение</th>
+                <th>Использований</th>
+                <th>Лимит</th>
+                <th>Статус</th>
+                <th>Истекает</th>
+                <th>Действия</th>
+              </tr>
+            </thead>
+            <tbody id="promosTableBody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="promosPagination"></div>
+      </div>
+    </div>
+
+    <!-- ══ LOGS ════════════════════════════════════ -->
+    <div class="admin-section" id="section-logs">
+      <div class="section-header">
+        <div>
+          <h2>📝 Логи</h2>
+          <p>История всех действий</p>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="exportLogs()">⬇️ Экспорт CSV</button>
+      </div>
+      <div class="admin-table-wrap">
+        <div class="admin-table-toolbar">
+          <input type="text" class="admin-search" id="logSearch" placeholder="🔍 Поиск по нику или действию..." oninput="renderLogsTable()" />
+          <select class="admin-filter-select" id="logTypeFilter" onchange="renderLogsTable()">
+            <option value="">Все типы</option>
+            <option value="bet">Ставки</option>
+            <option value="win">Выигрыши</option>
+            <option value="deposit">Пополнения</option>
+            <option value="withdraw">Выводы</option>
+            <option value="ban">Блокировки</option>
+            <option value="system">Система</option>
+          </select>
+          <input type="date" class="admin-filter-select" id="logDateFrom" onchange="renderLogsTable()" title="С даты" />
+          <input type="date" class="admin-filter-select" id="logDateTo" onchange="renderLogsTable()" title="По дату" />
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Время</th>
+                <th>Пользователь</th>
+                <th>Тип</th>
+                <th>Описание</th>
+                <th>Результат</th>
+              </tr>
+            </thead>
+            <tbody id="logsTableBody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="logsPagination"></div>
+      </div>
+    </div>
+
+    <!-- ══ MODERATION ══════════════════════════════ -->
+    <div class="admin-section" id="section-moderation">
+      <div class="section-header">
+        <div>
+          <h2>🚫 Модерация</h2>
+          <p>Управление словами и пользователями</p>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;flex:1;min-height:0;">
+
+        <!-- Forbidden words -->
+        <div class="admin-table-wrap" style="flex:none;height:auto;max-height:100%;">
+          <div class="admin-table-toolbar" style="justify-content:space-between;">
+            <span style="font-weight:600;font-size:0.9rem;">Запрещённые слова</span>
+            <button class="btn btn-accent btn-sm" onclick="openWordModal()">➕ Добавить</button>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr><th>Слово</th><th>Действие</th><th></th></tr>
+              </thead>
+              <tbody id="wordsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Moderation log -->
+        <div class="admin-table-wrap" style="flex:none;height:auto;max-height:100%;">
+          <div class="admin-table-toolbar" style="justify-content:space-between;">
+            <span style="font-weight:600;font-size:0.9rem;">История модерации</span>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr><th>Время</th><th>Пользователь</th><th>Действие</th><th>Причина</th></tr>
+              </thead>
+              <tbody id="modLogBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- User moderation actions -->
+      <div class="chart-card mt-16">
+        <h3 style="margin-bottom:14px;">👤 Модерация пользователей</h3>
+        <div class="admin-table-toolbar" style="padding:0;margin-bottom:12px;">
+          <input type="text" class="admin-search" id="modUserSearch" placeholder="🔍 Поиск пользователя..." oninput="renderModUsersTable()" />
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Ник</th>
+                <th>Статус</th>
+                <th>Мьют до</th>
+                <th>Предупреждений</th>
+                <th>Действия</th>
+              </tr>
+            </thead>
+            <tbody id="modUsersBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ SETTINGS ════════════════════════════════ -->
+    <div class="admin-section" id="section-settings">
+      <div class="section-header">
+        <div>
+          <h2>⚙️ Настройки системы</h2>
+          <p>Параметры игр и системы</p>
+        </div>
+        <button class="btn btn-accent btn-sm" onclick="saveSettings()">💾 Сохранить настройки</button>
+      </div>
+
+      <div class="settings-grid" id="settingsGrid">
+        <!-- Generated by JS -->
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script src="js/admin.js"></script>
+</body>
+</html>

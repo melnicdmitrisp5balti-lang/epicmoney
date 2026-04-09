@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EpicMoney – Админ панель</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    body { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--bg-dark); }
+    .auth-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 40px; width: 100%; max-width: 400px; }
+    .auth-card h1 { text-align: center; color: var(--accent); font-size: 1.8rem; margin-bottom: 4px; }
+    .auth-card p.subtitle { text-align: center; color: var(--text-muted); margin-bottom: 28px; font-size: 0.9rem; }
+    .form-group { margin-bottom: 18px; }
+    .form-group label { display: block; color: var(--text-muted); font-size: 0.85rem; margin-bottom: 6px; }
+    .form-group input { width: 100%; padding: 12px 14px; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.95rem; box-sizing: border-box; outline: none; transition: border-color 0.2s; }
+    .form-group input:focus { border-color: var(--accent); }
+    .btn-full { width: 100%; padding: 13px; font-size: 1rem; }
+    .error-msg { background: rgba(255,80,80,0.15); border: 1px solid #ff5050; border-radius: 8px; padding: 10px 14px; color: #ff8080; font-size: 0.9rem; margin-bottom: 16px; display: none; }
+    .logo { text-align: center; font-size: 2.4rem; margin-bottom: 16px; }
+    .admin-badge { display: inline-block; background: rgba(255,215,0,0.12); border: 1px solid rgba(255,215,0,0.3); color: var(--accent); border-radius: 20px; padding: 4px 14px; font-size: 0.8rem; font-weight: 600; margin-bottom: 18px; }
+    .admin-badge-wrap { text-align: center; }
+    .back-link { text-align: center; margin-top: 18px; color: var(--text-muted); font-size: 0.88rem; }
+    .back-link a { color: var(--accent); text-decoration: none; }
+    .demo-hint { text-align: center; color: var(--text-muted); font-size: 0.78rem; margin-top: 14px; background: rgba(255,215,0,0.06); border: 1px solid rgba(255,215,0,0.15); border-radius: 8px; padding: 10px; }
+    .demo-hint strong { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="auth-card">
+    <div class="logo">🛡️</div>
+    <h1>EpicMoney</h1>
+    <div class="admin-badge-wrap"><span class="admin-badge">ADMIN PANEL</span></div>
+    <p class="subtitle">Войдите как администратор</p>
+    <div id="errorMsg" class="error-msg"></div>
+    <form id="adminLoginForm">
+      <div class="form-group">
+        <label>Имя пользователя</label>
+        <input type="text" id="username" placeholder="Введите ник" autocomplete="username" required />
+      </div>
+      <div class="form-group">
+        <label>Пароль</label>
+        <input type="password" id="password" placeholder="Введите пароль" autocomplete="current-password" required />
+      </div>
+      <button type="submit" class="btn btn-accent btn-full" id="loginBtn">Войти в панель</button>
+    </form>
+    <div class="demo-hint">
+      Демо-администратор: <strong>admin</strong> / <strong>admin123</strong>
+    </div>
+    <div class="back-link">
+      <a href="index.html">← Вернуться в игру</a>
+    </div>
+  </div>
+
+  <script>
+    // Redirect if already logged in as admin
+    if (localStorage.getItem('em_admin_uid')) {
+      window.location.href = 'admin.html';
+    }
+
+    // WARNING: Weak hash for demo only.
+    function hashPass(str) {
+      let h = 5381;
+      for (let i = 0; i < str.length; i++) h = (((h << 5) + h) ^ str.charCodeAt(i)) >>> 0;
+      return h.toString(16);
+    }
+
+    function genId() {
+      return Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    }
+
+    // Ensure admin account exists
+    (function ensureAdmin() {
+      const users = JSON.parse(localStorage.getItem('em_users') || '[]');
+      if (!users.find(u => u.username === 'admin')) {
+        users.push({
+          id: 'admin-user',
+          username: 'admin',
+          email: 'admin@epicmoney.local',
+          passwordHash: hashPass('admin123'),
+          coins: 999999,
+          isAdmin: true,
+          gamesPlayed: 0,
+          gamesWon: 0,
+          totalWinnings: 0,
+          referralCode: 'ADMIN000',
+          createdAt: Date.now(),
+          status: 'active'
+        });
+        localStorage.setItem('em_users', JSON.stringify(users));
+      } else {
+        // Make sure existing admin user has isAdmin flag
+        const idx = users.findIndex(u => u.username === 'admin');
+        if (!users[idx].isAdmin) {
+          users[idx].isAdmin = true;
+          localStorage.setItem('em_users', JSON.stringify(users));
+        }
+      }
+    })();
+
+    document.getElementById('adminLoginForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const errEl = document.getElementById('errorMsg');
+      errEl.style.display = 'none';
+
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+
+      const users = JSON.parse(localStorage.getItem('em_users') || '[]');
+      const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
+
+      if (!user || user.passwordHash !== hashPass(password)) {
+        errEl.textContent = 'Неверный логин или пароль';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      if (!user.isAdmin) {
+        errEl.textContent = 'У вас нет прав администратора';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      if (user.status === 'banned') {
+        errEl.textContent = 'Аккаунт заблокирован';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      localStorage.setItem('em_admin_uid', user.id);
+      window.location.href = 'admin.html';
+    });
+  </script>
+</body>
+</html>
