@@ -17,15 +17,28 @@ db.serialize(() => {
 
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
-      id         INTEGER PRIMARY KEY AUTOINCREMENT,
-      username   TEXT    UNIQUE NOT NULL,
-      email      TEXT    UNIQUE,
-      password   TEXT    NOT NULL,
-      balance    REAL    NOT NULL DEFAULT 1000,
-      status     TEXT    NOT NULL DEFAULT 'active' CHECK(status IN ('active','banned')),
-      created_at DATETIME NOT NULL DEFAULT (datetime('now'))
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      username          TEXT    UNIQUE NOT NULL,
+      email             TEXT    UNIQUE,
+      password          TEXT    NOT NULL,
+      balance           REAL    NOT NULL DEFAULT 100,
+      status            TEXT    NOT NULL DEFAULT 'active' CHECK(status IN ('active','banned')),
+      games_played      INTEGER NOT NULL DEFAULT 0,
+      games_won         INTEGER NOT NULL DEFAULT 0,
+      total_winnings    REAL    NOT NULL DEFAULT 0,
+      tutorial_attempts INTEGER NOT NULL DEFAULT 3,
+      created_at        DATETIME NOT NULL DEFAULT (datetime('now'))
     )
   `);
+
+  // Migrations for existing databases
+  const migrations = [
+    "ALTER TABLE users ADD COLUMN games_played INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN games_won INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN total_winnings REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN tutorial_attempts INTEGER NOT NULL DEFAULT 3"
+  ];
+  migrations.forEach(sql => db.run(sql, () => {}));
 
   db.run(`
     CREATE TABLE IF NOT EXISTS games (
