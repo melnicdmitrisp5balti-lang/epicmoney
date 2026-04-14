@@ -51,6 +51,11 @@
     // Redirect if already logged in
     if (localStorage.getItem('em_token')) window.location.href = 'index.html';
 
+    // When served by a separate dev server (e.g. http-server on :8000), point
+    // API calls at the Express backend on :3000.  When served by Express itself
+    // (:3000) keep relative paths so the app works on any host/port in production.
+    const API_BASE = window.location.port === '3000' ? '' : 'http://localhost:3000';
+
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const errEl = document.getElementById('errorMsg');
@@ -63,7 +68,7 @@
       const password = document.getElementById('password').value;
 
       try {
-        const res = await fetch('/api/auth/login', {
+        const res = await fetch(API_BASE + '/api/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, password })
