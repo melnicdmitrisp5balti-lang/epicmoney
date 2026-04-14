@@ -54,6 +54,11 @@
   <script>
     if (localStorage.getItem('em_token')) window.location.href = 'index.html';
 
+    // When served by a separate dev server (e.g. http-server on :8000), point
+    // API calls at the Express backend on :3000.  When served by Express itself
+    // (:3000) keep relative paths so the app works on any host/port in production.
+    const API_BASE = window.location.port === '3000' ? '' : 'http://localhost:3000';
+
     // Pre-fill referral code from URL
     const urlRef = new URLSearchParams(window.location.search).get('ref');
     if (urlRef) document.getElementById('referralCode').value = urlRef;
@@ -77,7 +82,7 @@
       btn.disabled = true;
 
       try {
-        const res = await fetch('/api/auth/register', {
+        const res = await fetch(API_BASE + '/api/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, password, referralCode: referralCode || undefined })

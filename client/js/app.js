@@ -1,6 +1,9 @@
 /* ═══════════════════════════════════════════════════
-   EpicMoney – Fully Local (localStorage) Version
-   No server required — open index.html directly
+   EpicMoney – Frontend Game Client
+   Auth (register/login) and profile data are synced
+   with the Express backend server via REST API.
+   Game state is stored in localStorage for fast
+   client-side rendering.  Open via http://localhost:3000
    ═══════════════════════════════════════════════════ */
 
 // ── Constants ──────────────────────────────────────
@@ -24,6 +27,12 @@ const K = {
   CHAT:    'em_chat',
   HISTORY: 'em_history'
 };
+
+// ── API base URL ───────────────────────────────────
+// When served from Express (:3000) use relative paths.
+// When a separate dev server (e.g. http-server :8000) is used,
+// point at the Express backend so API calls reach the right server.
+const API_BASE = window.location.port === '3000' ? '' : 'http://localhost:3000';
 
 // ── Simple hash (demo only — NOT suitable for production) ─
 // WARNING: This is a weak hash for local demo purposes only.
@@ -1213,7 +1222,7 @@ function gameTick() {
   // Sync balance and profile from server
   const token = localStorage.getItem('em_token');
   if (token) {
-    fetch('/api/profile', { headers: { 'Authorization': 'Bearer ' + token } })
+    fetch(API_BASE + '/api/profile', { headers: { 'Authorization': 'Bearer ' + token } })
       .then(r => {
         if (r.status === 401) { logout(); return null; }
         return r.ok ? r.json() : null;

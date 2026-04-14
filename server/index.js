@@ -34,7 +34,11 @@ const server = http.createServer(app);
 // Restrict allowed origins via env var
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-  : ['http://localhost:3000', 'http://127.0.0.1:3000'];
+  : [
+      'http://localhost:3000', 'http://127.0.0.1:3000',
+      'http://localhost:8000', 'http://127.0.0.1:8000',
+      'http://localhost:5173', 'http://localhost:5500'
+    ];
 
 const io = new Server(server, {
   cors: { origin: allowedOrigins, methods: ['GET', 'POST'] }
