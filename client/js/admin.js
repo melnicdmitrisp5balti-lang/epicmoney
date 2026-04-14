@@ -7,7 +7,7 @@
 const K = {
   USERS:        'em_users',
   CUR_UID:      'em_current_uid',
-  ADMIN_UID:    'em_admin_uid',
+  ADMIN_UID:    'em_admin_token',
   JACKPOT:      'em_jackpot',
   BATTLE:       'em_battle',
   FAST:         'em_fast_games',
