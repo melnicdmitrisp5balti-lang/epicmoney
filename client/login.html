@@ -49,58 +49,64 @@
   </div>
   <script>
     // Redirect if already logged in
-    if (localStorage.getItem('em_current_uid')) window.location.href = 'index.html';
+    if (localStorage.getItem('em_token')) window.location.href = 'index.html';
 
-    // WARNING: This is a weak hash for local demo purposes only.
-    // Use a proper server-side solution with bcrypt for real authentication.
-    function hashPass(str) {
-      let h = 5381;
-      for (let i = 0; i < str.length; i++) h = (((h << 5) + h) ^ str.charCodeAt(i)) >>> 0;
-      return h.toString(16);
-    }
-
-    function genId() {
-      return Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-    }
-
-    // Ensure demo account exists
-    (function ensureDemo() {
-      const users = JSON.parse(localStorage.getItem('em_users') || '[]');
-      if (!users.find(u => u.username === 'demo')) {
-        users.push({
-          id: 'demo-user',
-          username: 'demo',
-          passwordHash: hashPass('demo123'),
-          coins: 1000,
-          gamesPlayed: 0,
-          gamesWon: 0,
-          totalWinnings: 0,
-          referralCode: 'DEMO0000',
-          createdAt: Date.now()
-        });
-        localStorage.setItem('em_users', JSON.stringify(users));
-      }
-    })();
-
-    document.getElementById('loginForm').addEventListener('submit', (e) => {
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const errEl = document.getElementById('errorMsg');
       errEl.style.display = 'none';
+      const btn = document.getElementById('loginBtn');
+      btn.textContent = 'Вход...';
+      btn.disabled = true;
 
       const username = document.getElementById('username').value.trim();
       const password = document.getElementById('password').value;
 
-      const users = JSON.parse(localStorage.getItem('em_users') || '[]');
-      const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          errEl.textContent = data.error || 'Неверный логин или пароль';
+          errEl.style.display = 'block';
+          btn.textContent = 'Войти';
+          btn.disabled = false;
+          return;
+        }
 
-      if (!user || user.passwordHash !== hashPass(password)) {
-        errEl.textContent = 'Неверный логин или пароль';
+        localStorage.setItem('em_token', data.token);
+
+        // Store/update user in local cache for game logic compatibility
+        const uid = String(data.user.id);
+        const users = JSON.parse(localStorage.getItem('em_users') || '[]');
+        const existingIdx = users.findIndex(u => String(u.id) === uid);
+        if (existingIdx >= 0) {
+          users[existingIdx] = { ...users[existingIdx], coins: data.user.balance !== undefined ? data.user.balance : users[existingIdx].coins, username: data.user.username };
+        } else {
+          users.push({
+            id: uid,
+            username: data.user.username,
+            coins: data.user.balance !== undefined ? data.user.balance : 100,
+            gamesPlayed: 0,
+            gamesWon: 0,
+            totalWinnings: 0,
+            referralCode: data.user.username.toUpperCase().slice(0, 6),
+            createdAt: Date.now()
+          });
+        }
+        localStorage.setItem('em_users', JSON.stringify(users));
+        localStorage.setItem('em_current_uid', uid);
+
+        window.location.href = 'index.html';
+      } catch (err) {
+        errEl.textContent = 'Ошибка соединения с сервером';
         errEl.style.display = 'block';
-        return;
+        btn.textContent = 'Войти';
+        btn.disabled = false;
       }
-
-      localStorage.setItem('em_current_uid', user.id);
-      window.location.href = 'index.html';
     });
   </script>
 </body>
