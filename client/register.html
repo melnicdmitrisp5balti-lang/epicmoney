@@ -52,25 +52,13 @@
     </div>
   </div>
   <script>
-    if (localStorage.getItem('em_current_uid')) window.location.href = 'index.html';
-
-    // WARNING: This is a weak hash for local demo purposes only.
-    // Use a proper server-side solution with bcrypt for real authentication.
-    function hashPass(str) {
-      let h = 5381;
-      for (let i = 0; i < str.length; i++) h = (((h << 5) + h) ^ str.charCodeAt(i)) >>> 0;
-      return h.toString(16);
-    }
-
-    function genId() {
-      return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-    }
+    if (localStorage.getItem('em_token')) window.location.href = 'index.html';
 
     // Pre-fill referral code from URL
     const urlRef = new URLSearchParams(window.location.search).get('ref');
     if (urlRef) document.getElementById('referralCode').value = urlRef;
 
-    document.getElementById('regForm').addEventListener('submit', (e) => {
+    document.getElementById('regForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = document.getElementById('regBtn');
       const errEl = document.getElementById('errorMsg');
@@ -85,47 +73,53 @@
       if (username.length < 3) { errEl.textContent = 'Ник минимум 3 символа'; errEl.style.display = 'block'; return; }
       if (password.length < 6) { errEl.textContent = 'Пароль минимум 6 символов'; errEl.style.display = 'block'; return; }
 
-      const users = JSON.parse(localStorage.getItem('em_users') || '[]');
-      if (users.find(u => u.username.toLowerCase() === username.toLowerCase())) {
-        errEl.textContent = 'Этот ник уже занят';
-        errEl.style.display = 'block';
-        return;
-      }
-
-      const id = genId();
-      const refCode = username.toUpperCase().slice(0, 6) + Math.random().toString(36).slice(2, 6).toUpperCase();
-      let startCoins = 100;
-
-      // Apply referral code
-      if (referralCode) {
-        const referrerIdx = users.findIndex(u => u.referralCode === referralCode.toUpperCase());
-        if (referrerIdx >= 0) {
-          users[referrerIdx].coins = (users[referrerIdx].coins || 0) + 100;
-          startCoins += 100;
-        }
-      }
-
       btn.textContent = 'Регистрация...';
       btn.disabled = true;
 
-      users.push({
-        id,
-        username,
-        passwordHash: hashPass(password),
-        coins: startCoins,
-        gamesPlayed: 0,
-        gamesWon: 0,
-        totalWinnings: 0,
-        referralCode: refCode,
-        createdAt: Date.now()
-      });
+      try {
+        const res = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, referralCode: referralCode || undefined })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          errEl.textContent = data.error || 'Ошибка регистрации';
+          errEl.style.display = 'block';
+          btn.textContent = 'Зарегистрироваться';
+          btn.disabled = false;
+          return;
+        }
 
-      localStorage.setItem('em_users', JSON.stringify(users));
-      localStorage.setItem('em_current_uid', id);
+        localStorage.setItem('em_token', data.token);
 
-      sucEl.textContent = 'Аккаунт создан! Перенаправляем...';
-      sucEl.style.display = 'block';
-      setTimeout(() => window.location.href = 'index.html', 1200);
+        // Store user in local cache for game logic compatibility
+        const uid = String(data.user.id);
+        const users = JSON.parse(localStorage.getItem('em_users') || '[]');
+        if (!users.find(u => String(u.id) === uid)) {
+          users.push({
+            id: uid,
+            username: data.user.username,
+            coins: data.user.balance !== undefined ? data.user.balance : 100,
+            gamesPlayed: 0,
+            gamesWon: 0,
+            totalWinnings: 0,
+            referralCode: data.user.username.toUpperCase().slice(0, 6) + Math.random().toString(36).slice(2, 6).toUpperCase(),
+            createdAt: Date.now()
+          });
+          localStorage.setItem('em_users', JSON.stringify(users));
+        }
+        localStorage.setItem('em_current_uid', uid);
+
+        sucEl.textContent = 'Аккаунт создан! Перенаправляем...';
+        sucEl.style.display = 'block';
+        setTimeout(() => window.location.href = 'index.html', 1200);
+      } catch (err) {
+        errEl.textContent = 'Ошибка соединения с сервером';
+        errEl.style.display = 'block';
+        btn.textContent = 'Зарегистрироваться';
+        btn.disabled = false;
+      }
     });
   </script>
 </body>

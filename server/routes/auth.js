@@ -44,6 +44,8 @@ router.post('/register', async (req, res) => {
       [result.lastID, 'register', `User ${username} registered`]
     );
 
+    const newUser = await get('SELECT id, username, balance FROM users WHERE id = ?', [result.lastID]);
+
     const token = jwt.sign(
       { id: result.lastID, username: username.trim(), isAdmin: false },
       JWT_SECRET,
@@ -52,7 +54,7 @@ router.post('/register', async (req, res) => {
 
     res.status(201).json({
       token,
-      user: { id: result.lastID, username: username.trim(), balance: 1000 }
+      user: { id: newUser.id, username: newUser.username, balance: newUser.balance }
     });
   } catch (err) {
     console.error('Register error:', err);

@@ -71,7 +71,9 @@ function adjustCoins(id, delta) {
 
 // ── Auth guard ─────────────────────────────────────
 let currentUser = getCurrentUser();
-if (!currentUser) {
+if (!currentUser || !localStorage.getItem('em_token')) {
+  localStorage.removeItem('em_current_uid');
+  localStorage.removeItem('em_token');
   window.location.href = 'login.html';
 }
 
@@ -128,6 +130,7 @@ function calcChances(bets) {
 // ── Logout ─────────────────────────────────────────
 function logout() {
   localStorage.removeItem(K.CUR_UID);
+  localStorage.removeItem('em_token');
   window.location.href = 'login.html';
 }
 
@@ -1190,7 +1193,7 @@ function gameTick() {
 // ══════════════════════════════════════════════════
 (function init() {
   const user = getUserById(currentUser.id);
-  if (!user) { localStorage.removeItem(K.CUR_UID); window.location.href = 'login.html'; return; }
+  if (!user) { localStorage.removeItem(K.CUR_UID); localStorage.removeItem('em_token'); window.location.href = 'login.html'; return; }
   currentUser = user;
 
   updateSidebar(user);
@@ -1206,6 +1209,28 @@ function gameTick() {
 
   const urlRef = new URLSearchParams(window.location.search).get('ref');
   if (urlRef) localStorage.setItem('pendingRef', urlRef);
+
+  // Sync balance and profile from server
+  const token = localStorage.getItem('em_token');
+  if (token) {
+    fetch('/api/profile', { headers: { 'Authorization': 'Bearer ' + token } })
+      .then(r => {
+        if (r.status === 401) { logout(); return null; }
+        return r.ok ? r.json() : null;
+      })
+      .then(serverUser => {
+        if (serverUser) {
+          updateUser(currentUser.id, {
+            coins: serverUser.balance !== undefined ? serverUser.balance : user.coins,
+            gamesPlayed: serverUser.games_played || user.gamesPlayed || 0,
+            gamesWon: serverUser.games_won || user.gamesWon || 0,
+            totalWinnings: serverUser.total_winnings || user.totalWinnings || 0
+          });
+          refreshSidebar();
+        }
+      })
+      .catch(() => {});
+  }
 
   setInterval(gameTick, 1000);
 })();
