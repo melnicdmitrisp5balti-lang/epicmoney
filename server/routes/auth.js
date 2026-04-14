@@ -10,12 +10,22 @@ if (!JWT_SECRET) {
   process.exit(1);
 }
 
+// Generate a unique referral code for a user
+function generateReferralCode(username) {
+  const prefix = username.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4) || 'USER';
+  const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return prefix + suffix;
+}
+
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
   try {
-    const { username, email, password } = req.body;
+    const { username, email, password, referral_code } = req.body;
     if (!username || !password) {
       return res.status(400).json({ error: 'Username and password are required' });
+    }
+    if (username.trim().length < 3) {
+      return res.status(400).json({ error: 'Username must be at least 3 characters' });
     }
     if (password.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
@@ -34,10 +44,32 @@ router.post('/register', async (req, res) => {
     }
 
     const hash = await bcrypt.hash(password, 10);
+    const refCode = generateReferralCode(username);
+    let startBalance = 100;
+
+    // Handle referral bonus: +100 for both new user and referrer
+    let referrerId = null;
+    if (referral_code) {
+      const referrer = await get('SELECT id FROM users WHERE referral_code = ?', [referral_code.trim().toUpperCase()]);
+      if (referrer) {
+        referrerId = referrer.id;
+        startBalance += 100;
+      }
+    }
+
     const result = await run(
-      'INSERT INTO users (username, email, password) VALUES (?, ?, ?)',
-      [username.trim(), email ? email.trim() : null, hash]
+      'INSERT INTO users (username, email, password, referral_code, balance) VALUES (?, ?, ?, ?, ?)',
+      [username.trim(), email ? email.trim() : null, hash, refCode, startBalance]
     );
+
+    // Give referral bonus to referrer
+    if (referrerId) {
+      await run('UPDATE users SET balance = balance + 100 WHERE id = ?', [referrerId]);
+      await run(
+        'INSERT INTO transactions (user_id, type, amount, reason) VALUES (?, ?, ?, ?)',
+        [referrerId, 'bonus', 100, `Referral bonus: ${username} registered`]
+      );
+    }
 
     await run(
       'INSERT INTO logs (user_id, action, description) VALUES (?, ?, ?)',
@@ -52,7 +84,7 @@ router.post('/register', async (req, res) => {
 
     res.status(201).json({
       token,
-      user: { id: result.lastID, username: username.trim(), balance: 1000 }
+      user: { id: result.lastID, username: username.trim(), balance: startBalance, referral_code: refCode }
     });
   } catch (err) {
     console.error('Register error:', err);
@@ -95,7 +127,7 @@ router.post('/login', async (req, res) => {
 
     res.json({
       token,
-      user: { id: user.id, username: user.username, balance: user.balance }
+      user: { id: user.id, username: user.username, balance: user.balance, referral_code: user.referral_code }
     });
   } catch (err) {
     console.error('Login error:', err);

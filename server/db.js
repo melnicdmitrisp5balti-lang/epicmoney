@@ -36,7 +36,9 @@ db.serialize(() => {
     "ALTER TABLE users ADD COLUMN games_played INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE users ADD COLUMN games_won INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE users ADD COLUMN total_winnings REAL NOT NULL DEFAULT 0",
-    "ALTER TABLE users ADD COLUMN tutorial_attempts INTEGER NOT NULL DEFAULT 3"
+    "ALTER TABLE users ADD COLUMN tutorial_attempts INTEGER NOT NULL DEFAULT 3",
+    "ALTER TABLE users ADD COLUMN referral_code TEXT",
+    "ALTER TABLE users ADD COLUMN last_free_coins DATETIME"
   ];
   migrations.forEach(sql => db.run(sql, () => {}));
 

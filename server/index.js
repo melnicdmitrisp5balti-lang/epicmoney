@@ -20,7 +20,7 @@ const statsRoutes = require('./routes/stats');
 const settingsRoutes = require('./routes/settings');
 const { initSocketHandlers } = require('./socket/handlers');
 const authMiddleware = require('./middleware/auth');
-const { get } = require('./db');
+const { get, all } = require('./db');
 
 // Fail fast if required environment variables are missing
 if (!process.env.JWT_SECRET) {
@@ -70,11 +70,23 @@ app.use('/api/auth', authLimiter, authRoutes);
 app.get('/api/profile', authMiddleware, async (req, res) => {
   try {
     const user = await get(
-      'SELECT id, username, email, balance, status, created_at FROM users WHERE id = ?',
+      'SELECT id, username, email, balance, status, games_played, games_won, total_winnings, referral_code, created_at FROM users WHERE id = ?',
       [req.user.id]
     );
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Public leaderboard
+app.get('/api/leaderboard', async (req, res) => {
+  try {
+    const users = await all(
+      "SELECT id, username, balance, games_played, games_won, total_winnings FROM users WHERE status = 'active' ORDER BY total_winnings DESC LIMIT 20"
+    );
+    res.json(users);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }

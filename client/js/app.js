@@ -1,79 +1,62 @@
 /* ═══════════════════════════════════════════════════
-   EpicMoney – Fully Local (localStorage) Version
-   No server required — open index.html directly
+   EpicMoney – Server-Backed Version
+   Uses JWT authentication + Socket.io for real-time game state
    ═══════════════════════════════════════════════════ */
 
 // ── Constants ──────────────────────────────────────
 const COINS_PER_MDL = 10;
-const PROMO_CODES = {
-  'EPIC100': 100,
-  'WELCOME50': 50,
-  'BONUS200': 200,
-  'DEMO500': 500
-};
 const COLORS = ['#e74c3c','#3498db','#2ecc71','#9b59b6','#e67e22','#1abc9c','#f39c12','#16a085','#c0392b','#2980b9'];
 
-// ── Storage Keys ───────────────────────────────────
-const K = {
-  USERS:   'em_users',
-  CUR_UID: 'em_current_uid',
-  JACKPOT: 'em_jackpot',
-  BATTLE:  'em_battle',
-  FAST:    'em_fast_games',
-  OVS:     'em_1vs1_games',
-  CHAT:    'em_chat',
-  HISTORY: 'em_history'
-};
-
-// ── Simple hash (demo only — NOT suitable for production) ─
-// WARNING: This is a weak hash for local demo purposes only.
-// Use bcrypt or a proper server-side solution for real authentication.
-function hashPass(str) {
-  let h = 5381;
-  for (let i = 0; i < str.length; i++) h = (((h << 5) + h) ^ str.charCodeAt(i)) >>> 0;
-  return h.toString(16);
-}
-
-// ── Generate unique IDs ────────────────────────────
-function genId() {
-  return Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 5).toUpperCase();
-}
-
-// ── localStorage helpers ───────────────────────────
-const ls = {
-  get: (k, def = null) => {
-    try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; }
-  },
-  set: (k, v) => localStorage.setItem(k, JSON.stringify(v))
-};
-
-// ── User CRUD ──────────────────────────────────────
-function getUsers() { return ls.get(K.USERS, []); }
-function saveUsers(u) { ls.set(K.USERS, u); }
-function getUserById(id) { return getUsers().find(u => u.id === id) || null; }
-function getCurrentUser() {
-  const uid = localStorage.getItem(K.CUR_UID);
-  return uid ? getUserById(uid) : null;
-}
-function updateUser(id, patch) {
-  const users = getUsers();
-  const i = users.findIndex(u => u.id === id);
-  if (i < 0) return null;
-  users[i] = { ...users[i], ...patch };
-  saveUsers(users);
-  return users[i];
-}
-function adjustCoins(id, delta) {
-  const u = getUserById(id);
-  if (!u) return null;
-  return updateUser(id, { coins: Math.max(0, (u.coins || 0) + delta) });
-}
-
-// ── Auth guard ─────────────────────────────────────
-let currentUser = getCurrentUser();
-if (!currentUser) {
+// ── Auth token ─────────────────────────────────────
+const token = localStorage.getItem('em_token');
+if (!token) {
   window.location.href = 'login.html';
 }
+
+// ── API helper ─────────────────────────────────────
+async function apiFetch(url, options = {}) {
+  const headers = { 'Content-Type': 'application/json', ...options.headers };
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const res = await fetch(url, { ...options, headers });
+  if (res.status === 401) {
+    localStorage.removeItem('em_token');
+    localStorage.removeItem('em_user');
+    window.location.href = 'login.html';
+    throw new Error('Unauthorized');
+  }
+  return res;
+}
+
+// ── Current user state ─────────────────────────────
+let currentUser = null;
+
+// ── Socket.io connection ───────────────────────────
+const socket = io({ auth: { token } });
+
+socket.on('connect', () => {
+  console.log('Socket connected:', socket.id);
+});
+
+socket.on('connect_error', (err) => {
+  console.error('Socket connection error:', err.message);
+});
+
+socket.on('error', (msg) => {
+  showToast(msg, 'error');
+});
+
+socket.on('gameMessage', (msg) => {
+  showToast(msg, 'info');
+  // Balance was already updated by server; refresh from server
+  refreshBalance();
+});
+
+socket.on('balanceUpdate', (data) => {
+  if (currentUser) {
+    currentUser.balance = data.balance;
+    updateSidebar(currentUser);
+  }
+});
 
 // ── UTILITY ───────────────────────────────────────
 function showToast(msg, type = 'info') {
@@ -105,46 +88,42 @@ function escHtml(str) {
 function coinsToMdl(coins) { return coins / COINS_PER_MDL; }
 function getColor(index) { return COLORS[index % COLORS.length]; }
 
-// ── Pick winner proportional to coins staked ──────
-function pickWinnerByTickets(bets) {
-  const total = bets.reduce((s, b) => s + (b.amount || 0), 0);
-  if (!total) return bets[Math.floor(Math.random() * bets.length)];
-  let r = Math.random() * total;
-  for (const b of bets) {
-    r -= (b.amount || 0);
-    if (r <= 0) return b;
-  }
-  return bets[bets.length - 1];
-}
-
-function calcChances(bets) {
-  const total = bets.reduce((s, b) => s + (b.amount || 0), 0);
-  return bets.map(b => ({
-    ...b,
-    chance: total > 0 ? ((b.amount / total) * 100).toFixed(1) : '0.0'
-  }));
-}
-
 // ── Logout ─────────────────────────────────────────
 function logout() {
-  localStorage.removeItem(K.CUR_UID);
+  fetch('/api/auth/logout', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token } })
+    .catch(() => {});
+  localStorage.removeItem('em_token');
+  localStorage.removeItem('em_user');
   window.location.href = 'login.html';
+}
+
+// ── Refresh balance from server ────────────────────
+async function refreshBalance() {
+  try {
+    const res = await apiFetch('/api/balance');
+    if (res.ok) {
+      const data = await res.json();
+      if (currentUser) {
+        currentUser.balance = data.balance;
+        updateSidebar(currentUser);
+      }
+    }
+  } catch (e) { /* ignore */ }
 }
 
 // ── Update sidebar ─────────────────────────────────
 function updateSidebar(user) {
   currentUser = user;
-  document.getElementById('sidebarAvatar').textContent = (user.username || '?')[0].toUpperCase();
-  document.getElementById('sidebarUsername').textContent = user.username;
-  document.getElementById('sidebarCoins').textContent = formatCoins(user.coins);
-  document.getElementById('sidebarMdl').textContent = coinsToMdl(user.coins).toFixed(1) + ' MDL';
+  const avatar = document.getElementById('sidebarAvatar');
+  if (avatar) avatar.textContent = (user.username || '?')[0].toUpperCase();
+  const nameEl = document.getElementById('sidebarUsername');
+  if (nameEl) nameEl.textContent = user.username;
+  const coinsEl = document.getElementById('sidebarCoins');
+  if (coinsEl) coinsEl.textContent = formatCoins(user.balance);
+  const mdlEl = document.getElementById('sidebarMdl');
+  if (mdlEl) mdlEl.textContent = coinsToMdl(user.balance).toFixed(1) + ' MDL';
   const adminLink = document.getElementById('adminPanelLink');
-  if (adminLink) adminLink.style.display = user.isAdmin ? '' : 'none';
-}
-
-function refreshSidebar() {
-  const u = getUserById(currentUser.id);
-  if (u) updateSidebar(u);
+  if (adminLink) adminLink.style.display = 'none'; // admin panel is separate
 }
 
 // ── Section navigation ─────────────────────────────
@@ -186,106 +165,98 @@ function setGameStatus(elId, status) {
 
 // ── Winner display ─────────────────────────────────
 function showWinner(username, amount) {
-  document.getElementById('winnerName').textContent = username;
-  document.getElementById('winnerAmount').textContent = '+' + formatCoins(amount);
-  document.getElementById('winnerOverlay').classList.add('visible');
-  setTimeout(() => document.getElementById('winnerOverlay').classList.remove('visible'), 6000);
+  const el = document.getElementById('winnerName');
+  if (el) el.textContent = username;
+  const amtEl = document.getElementById('winnerAmount');
+  if (amtEl) amtEl.textContent = '+' + formatCoins(amount);
+  const overlay = document.getElementById('winnerOverlay');
+  if (overlay) {
+    overlay.classList.add('visible');
+    setTimeout(() => overlay.classList.remove('visible'), 6000);
+  }
 }
 
-// ── History helper ─────────────────────────────────
-function addToHistory(game) {
-  const history = ls.get(K.HISTORY, []);
-  history.push(game);
-  if (history.length > 200) history.splice(0, history.length - 200);
-  ls.set(K.HISTORY, history);
+// ── Pick winner proportional to tickets ───────────
+function pickWinnerByTickets(bets) {
+  const total = bets.reduce((s, b) => s + (b.tickets || b.amount || 0), 0);
+  if (!total) return bets[Math.floor(Math.random() * bets.length)];
+  let r = Math.random() * total;
+  for (const b of bets) {
+    r -= (b.tickets || b.amount || 0);
+    if (r <= 0) return b;
+  }
+  return bets[bets.length - 1];
 }
 
-// ── Update player stats ────────────────────────────
-function recordGameResult(bets, winnerId, winAmount) {
-  bets.forEach(b => {
-    const u = getUserById(b.userId);
-    if (!u) return;
-    const patch = { gamesPlayed: (u.gamesPlayed || 0) + 1 };
-    if (b.userId === winnerId) {
-      patch.gamesWon = (u.gamesWon || 0) + 1;
-      patch.totalWinnings = (u.totalWinnings || 0) + winAmount;
-      adjustCoins(b.userId, winAmount);
-    }
-    updateUser(b.userId, patch);
-  });
+function calcChances(bets) {
+  const total = bets.reduce((s, b) => s + (b.tickets || b.amount || 0), 0);
+  return bets.map(b => ({
+    ...b,
+    chance: total > 0 ? (((b.tickets || b.amount || 0) / total) * 100).toFixed(1) : '0.0'
+  }));
 }
 
 // ═══════════════════════════════════════════════════
 // ── JACKPOT ────────────────────────────────────────
 // ═══════════════════════════════════════════════════
-function getJackpot() { return ls.get(K.JACKPOT, null); }
+let jackpotGame = null;
 
-function initJackpot() {
-  const game = { gameId: 'JP-' + genId(), status: 'waiting', bets: [], pot: 0, endsAt: null, createdAt: Date.now() };
-  ls.set(K.JACKPOT, game);
+socket.on('jackpotUpdate', (game) => {
+  jackpotGame = game;
   renderJackpot(game);
-  return game;
-}
+});
+
+socket.on('jackpotFinished', (game) => {
+  jackpotGame = game;
+  if (game.bets && game.bets.length > 0) {
+    renderJackpotBar(game.bets, true);
+  }
+  setGameStatus('jpStatus', 'finishing');
+  if (game.winner) {
+    setTimeout(() => {
+      showWinner(game.winner.username, game.winner.amount);
+      showToast(`Победитель: ${game.winner.username}! 🎉`, 'success');
+    }, 4800);
+  }
+});
 
 function placeJackpotBet() {
   const coins = parseInt(document.getElementById('jpBetAmount').value);
   if (!coins || coins <= 0) return showToast('Введите сумму ставки в монетах', 'error');
+  if (!currentUser || currentUser.balance < coins) return showToast('Недостаточно монет', 'error');
 
-  const user = getUserById(currentUser.id);
-  if (user.coins < coins) return showToast('Недостаточно монет', 'error');
-
-  let game = getJackpot();
-  if (!game || game.status === 'finished') game = initJackpot();
-  if (game.status === 'finishing') return showToast('Игра завершается, ждите следующей', 'error');
-
-  const existingIdx = game.bets.findIndex(b => b.userId === user.id);
-  if (existingIdx >= 0) {
-    game.bets[existingIdx].amount += coins;
-  } else {
-    const colorIdx = game.bets.length;
-    game.bets.push({ userId: user.id, username: user.username, amount: coins, colorIdx, color: getColor(colorIdx) });
-  }
-
-  game.pot += coins;
-
-  // Timer starts only when 2+ different players have placed bets
-  const realPlayers = game.bets.length;
-  if (!game.endsAt && realPlayers >= 2) {
-    game.endsAt = Date.now() + 30000;
-    game.status = 'active';
-  } else if (realPlayers < 2) {
-    game.status = 'waiting';
-  }
-
-  adjustCoins(user.id, -coins);
-  ls.set(K.JACKPOT, game);
+  socket.emit('jackpotBet', { amount: coins });
   document.getElementById('jpBetAmount').value = '';
-  refreshSidebar();
-  renderJackpot(game);
   showToast(`Ставка ${formatCoins(coins)} принята! 🎰`, 'success');
 }
 
 function renderJackpot(game) {
   if (!game) return;
-  document.getElementById('jpGameId').textContent = 'GAME #' + game.gameId;
-  document.getElementById('jpPot').textContent = game.pot.toLocaleString('ru-RU');
+  const idEl = document.getElementById('jpGameId');
+  if (idEl) idEl.textContent = 'GAME #' + game.gameId;
+  const potEl = document.getElementById('jpPot');
+  if (potEl) potEl.textContent = (game.pot || 0).toLocaleString('ru-RU');
   setGameStatus('jpStatus', game.status);
 
   const timerEl = document.getElementById('jpTimer');
-  if (game.status === 'active' && game.endsAt) {
-    timerEl.textContent = formatTimer(game.endsAt - Date.now());
-  } else if (game.status === 'waiting') {
-    timerEl.textContent = game.bets.length > 0 ? 'Ждём игрока...' : '--:--';
-  } else {
-    timerEl.textContent = '--:--';
+  if (timerEl) {
+    if (game.status === 'active' && game.endsAt) {
+      timerEl.textContent = formatTimer(game.endsAt - Date.now());
+    } else if (game.status === 'waiting') {
+      timerEl.textContent = (game.bets && game.bets.length > 0) ? 'Ждём игрока...' : '--:--';
+    } else {
+      timerEl.textContent = '--:--';
+    }
   }
 
-  renderJackpotBar(game.bets, false);
-  renderJackpotPlayers(calcChances(game.bets));
+  const players = game.players || calcChances(game.bets || []);
+  renderJackpotBar(game.bets || [], false);
+  renderJackpotPlayers(players);
 }
 
 function renderJackpotBar(bets, animate) {
   const track = document.getElementById('jpTrack');
+  if (!track) return;
   const totalCoins = bets.reduce((s, b) => s + (b.amount || 0), 0);
   if (!totalCoins || !bets.length) {
     track.innerHTML = `<div style="flex:1;background:var(--border);display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:0.8rem;">Ожидание ставок...</div>`;
@@ -319,6 +290,7 @@ function renderJackpotBar(bets, animate) {
 
 function renderJackpotPlayers(players) {
   const el = document.getElementById('jpPlayers');
+  if (!el) return;
   if (!players || !players.length) {
     el.innerHTML = '<div class="empty-state"><div class="empty-icon">🎰</div>Ещё нет ставок</div>';
     return;
@@ -332,39 +304,27 @@ function renderJackpotPlayers(players) {
     </div>`).join('');
 }
 
-function finishJackpot(game) {
-  if (!game || game.bets.length === 0) { initJackpot(); return; }
-  game.status = 'finishing';
-  ls.set(K.JACKPOT, game);
-  renderJackpotBar(game.bets, true);
-  setGameStatus('jpStatus', 'finishing');
-  setTimeout(() => {
-    const winner = pickWinnerByTickets(game.bets);
-    game.status = 'finished';
-    game.winner = { ...winner, winAmount: game.pot };
-    ls.set(K.JACKPOT, game);
-    recordGameResult(game.bets, winner.userId, game.pot);
-    addToHistory({ ...game, type: 'Jackpot' });
-    showWinner(winner.username, game.pot);
-    showToast(`Победитель: ${winner.username}! 🎉`, 'success');
-    refreshSidebar();
-    setTimeout(() => initJackpot(), 5000);
-  }, 4800);
-}
-
 // ═══════════════════════════════════════════════════
 // ── BATTLE GAME ────────────────────────────────────
 // ═══════════════════════════════════════════════════
-function getBattle() { return ls.get(K.BATTLE, null); }
-
-function initBattle() {
-  const game = { gameId: 'BT-' + genId(), status: 'waiting', bets: [], bluePot: 0, redPot: 0, pot: 0, endsAt: null, createdAt: Date.now() };
-  ls.set(K.BATTLE, game);
-  renderBattle(game);
-  return game;
-}
-
+let battleGame = null;
 let selectedBattleSide = null;
+
+socket.on('battleUpdate', (game) => {
+  battleGame = game;
+  renderBattle(game);
+});
+
+socket.on('battleFinished', (game) => {
+  battleGame = game;
+  setGameStatus('bgStatus', 'finishing');
+  if (game.winner) {
+    setTimeout(() => {
+      showWinner(game.winner.username, game.winner.amount);
+      showToast(`Победили ${game.winner.side === 'blue' ? 'Синие' : 'Красные'}! Победитель: ${game.winner.username} 🎉`, 'success');
+    }, 2000);
+  }
+});
 
 function selectSide(side) {
   selectedBattleSide = side;
@@ -376,57 +336,39 @@ function placeBattleBet() {
   const coins = parseInt(document.getElementById('bgBetAmount').value);
   if (!coins || coins <= 0) return showToast('Введите сумму ставки в монетах', 'error');
   if (!selectedBattleSide) return showToast('Выберите сторону (Синие/Красные)', 'error');
+  if (!currentUser || currentUser.balance < coins) return showToast('Недостаточно монет', 'error');
 
-  const user = getUserById(currentUser.id);
-  if (user.coins < coins) return showToast('Недостаточно монет', 'error');
-
-  let game = getBattle();
-  if (!game || game.status === 'finished') game = initBattle();
-  if (game.status === 'finishing') return showToast('Игра завершается, ждите следующей', 'error');
-
-  const color = selectedBattleSide === 'blue' ? '#4a9eff' : '#ff4a4a';
-  game.bets.push({ userId: user.id, username: user.username, amount: coins, side: selectedBattleSide, color });
-  game.pot += coins;
-  if (selectedBattleSide === 'blue') game.bluePot += coins; else game.redPot += coins;
-
-  // Timer starts only when both sides have at least one player
-  const hasBluePlayers = game.bets.some(b => b.side === 'blue');
-  const hasRedPlayers = game.bets.some(b => b.side === 'red');
-  if (!game.endsAt && hasBluePlayers && hasRedPlayers) {
-    game.endsAt = Date.now() + 30000;
-    game.status = 'active';
-  } else if (!(hasBluePlayers && hasRedPlayers)) {
-    game.status = 'waiting';
-  }
-
-  adjustCoins(user.id, -coins);
-  ls.set(K.BATTLE, game);
+  socket.emit('battleBet', { amount: coins, side: selectedBattleSide });
   document.getElementById('bgBetAmount').value = '';
-  refreshSidebar();
-  renderBattle(game);
   showToast(`Ставка ${formatCoins(coins)} на ${selectedBattleSide === 'blue' ? 'Синих' : 'Красных'} принята!`, 'success');
 }
 
 function renderBattle(game) {
   if (!game) return;
-  document.getElementById('bgGameId').textContent = 'GAME #' + game.gameId;
-  document.getElementById('bgPot').textContent = game.pot.toLocaleString('ru-RU');
+  const idEl = document.getElementById('bgGameId');
+  if (idEl) idEl.textContent = 'GAME #' + game.gameId;
+  const potEl = document.getElementById('bgPot');
+  if (potEl) potEl.textContent = (game.pot || 0).toLocaleString('ru-RU');
   setGameStatus('bgStatus', game.status);
 
   const timerEl = document.getElementById('bgTimer');
-  if (game.status === 'active' && game.endsAt) {
-    timerEl.textContent = formatTimer(game.endsAt - Date.now());
-  } else if (game.status === 'waiting') {
-    timerEl.textContent = game.bets.length > 0 ? 'Ждём игрока...' : '--:--';
-  } else {
-    timerEl.textContent = '--:--';
+  if (timerEl) {
+    if (game.status === 'active' && game.endsAt) {
+      timerEl.textContent = formatTimer(game.endsAt - Date.now());
+    } else if (game.status === 'waiting') {
+      timerEl.textContent = (game.bets && game.bets.length > 0) ? 'Ждём игрока...' : '--:--';
+    } else {
+      timerEl.textContent = '--:--';
+    }
   }
 
-  renderBattlePlayers(calcChances(game.bets), game.bluePot, game.redPot);
+  const players = game.players || calcChances(game.bets || []);
+  renderBattlePlayers(players, game.bluePot || 0, game.redPot || 0);
 }
 
 function renderBattlePlayers(players, bluePot, redPot) {
   const el = document.getElementById('bgPlayers');
+  if (!el) return;
   if (!players || !players.length) {
     el.innerHTML = '<div class="empty-state"><div class="empty-icon">⚔️</div>Ещё нет игроков</div>';
   } else {
@@ -442,67 +384,42 @@ function renderBattlePlayers(players, bluePot, redPot) {
   const total = (bluePot || 0) + (redPot || 0);
   const bluePct = total ? Math.round((bluePot || 0) / total * 100) : 50;
   const redPct = total ? Math.round((redPot || 0) / total * 100) : 50;
-  document.getElementById('bgBlueBar').style.width = bluePct + '%';
-  document.getElementById('bgBlueBar').textContent = `Синие ${bluePct}%`;
-  document.getElementById('bgRedBar').textContent = `Красные ${redPct}%`;
-}
-
-function finishBattle(game) {
-  if (!game || game.bets.length === 0) { initBattle(); return; }
-  game.status = 'finishing';
-  ls.set(K.BATTLE, game);
-  setGameStatus('bgStatus', 'finishing');
-  setTimeout(() => {
-    const total = game.bluePot + game.redPot;
-    const winningSide = Math.random() * total < game.bluePot ? 'blue' : 'red';
-    const sideBets = game.bets.filter(b => b.side === winningSide);
-    const winner = sideBets.length > 0 ? pickWinnerByTickets(sideBets) : game.bets[0];
-    game.status = 'finished';
-    game.winner = { ...winner, winAmount: game.pot, side: winningSide };
-    ls.set(K.BATTLE, game);
-    recordGameResult(game.bets, winner.userId, game.pot);
-    addToHistory({ ...game, type: 'Battle' });
-    showWinner(winner.username, game.pot);
-    showToast(`Победили ${winningSide === 'blue' ? 'Синие' : 'Красные'}! Победитель: ${winner.username} 🎉`, 'success');
-    refreshSidebar();
-    setTimeout(() => initBattle(), 5000);
-  }, 2000);
+  const blueBar = document.getElementById('bgBlueBar');
+  if (blueBar) { blueBar.style.width = bluePct + '%'; blueBar.textContent = `Синие ${bluePct}%`; }
+  const redBar = document.getElementById('bgRedBar');
+  if (redBar) redBar.textContent = `Красные ${redPct}%`;
 }
 
 // ═══════════════════════════════════════════════════
 // ── FAST GAME ──────────────────────────────────────
 // ═══════════════════════════════════════════════════
-function getFastGames() { return ls.get(K.FAST, []); }
+let fastGames = [];
+
+socket.on('fastGamesList', (games) => {
+  fastGames = games || [];
+  renderFastGames();
+});
+
+socket.on('fastGameFinished', (game) => {
+  if (game.winner) {
+    showWinner(game.winner.username, game.winner.amount);
+    showToast(`Fast Game завершена! Победитель: ${game.winner.username} 🎉`, 'success');
+  }
+});
 
 function createFastGame() {
   const coins = parseInt(document.getElementById('fgCreateAmount').value);
   if (!coins || coins <= 0) return showToast('Введите сумму ставки в монетах', 'error');
-  const user = getUserById(currentUser.id);
-  if (user.coins < coins) return showToast('Недостаточно монет', 'error');
+  if (!currentUser || currentUser.balance < coins) return showToast('Недостаточно монет', 'error');
 
-  const game = {
-    gameId: 'FG-' + genId(), status: 'waiting', maxPlayers: 3,
-    minBet: Math.floor(coins * 0.9), maxBet: Math.ceil(coins * 1.1),
-    bets: [{ userId: user.id, username: user.username, amount: coins, color: getColor(0) }],
-    pot: coins, createdAt: Date.now(),
-    abandonAt: Date.now() + 120000  // auto-cancel after 120s if no second player
-  };
-
-  adjustCoins(user.id, -coins);
-  const games = getFastGames();
-  games.push(game);
-  ls.set(K.FAST, games);
+  socket.emit('fastGameCreate', { amount: coins });
   document.getElementById('fgCreateAmount').value = '';
-  refreshSidebar();
-  renderFastGames();
   showToast('Игра создана! Ожидаем игроков... (120с)', 'success');
 }
 
 function joinFastGame(gameId) {
-  const games = getFastGames();
-  const game = games.find(g => g.gameId === gameId);
+  const game = fastGames.find(g => g.gameId === gameId);
   if (!game || game.status !== 'waiting') return showToast('Игра недоступна', 'error');
-  if (game.bets.find(b => b.userId === currentUser.id)) return showToast('Вы уже в этой игре', 'error');
 
   const minC = game.minBet;
   const maxC = game.maxBet;
@@ -513,81 +430,31 @@ function joinFastGame(gameId) {
   if (!coins || coins < minC || coins > maxC) {
     return showToast(`Ставка должна быть от ${minC} до ${maxC} монет`, 'error');
   }
+  if (!currentUser || currentUser.balance < coins) return showToast('Недостаточно монет', 'error');
 
-  const user = getUserById(currentUser.id);
-  if (user.coins < coins) return showToast('Недостаточно монет', 'error');
-
-  game.bets.push({ userId: user.id, username: user.username, amount: coins, color: getColor(game.bets.length) });
-  game.pot += coins;
-  adjustCoins(user.id, -coins);
-
-  // When 2nd player joins, set a 30s countdown before drawing
-  if (game.bets.length === 2) {
-    game.endsAt = Date.now() + 30000;
-    game.status = 'active';
-    game.abandonAt = null;
-  }
-  if (game.bets.length >= game.maxPlayers) {
-    game.status = 'finishing';
-    setTimeout(() => finishFastGame(gameId), 1500);
-  }
-
-  const idx = games.findIndex(g => g.gameId === gameId);
-  games[idx] = game;
-  ls.set(K.FAST, games);
-  refreshSidebar();
-  renderFastGames();
+  socket.emit('fastGameJoin', { gameId, amount: coins });
   showToast('Вы вступили в игру!', 'success');
 }
 
-function finishFastGame(gameId) {
-  const games = getFastGames();
-  const game = games.find(g => g.gameId === gameId);
-  if (!game) return;
-
-  if (game.bets.length < 2) {
-    // Abandon: refund the only player
-    const b = game.bets[0];
-    if (b) {
-      adjustCoins(b.userId, b.amount);
-      if (b.userId === currentUser.id) {
-        refreshSidebar();
-        showToast('Никто не присоединился. Ставка возвращена! 💸', 'info');
-      }
-    }
-    ls.set(K.FAST, games.filter(g => g.gameId !== gameId));
-    renderFastGames();
-    return;
-  }
-
-  const winner = pickWinnerByTickets(game.bets);
-  game.status = 'finished';
-  game.winner = { ...winner, winAmount: game.pot };
-  recordGameResult(game.bets, winner.userId, game.pot);
-  addToHistory({ ...game, type: 'Fast Game' });
-  showWinner(winner.username, game.pot);
-  showToast(`Fast Game завершена! Победитель: ${winner.username} 🎉`, 'success');
-  ls.set(K.FAST, games.filter(g => g.gameId !== gameId));
-  refreshSidebar();
-  renderFastGames();
-}
-
 function renderFastGames() {
-  const games = getFastGames().filter(g => g.status !== 'finished');
+  const games = fastGames.filter(g => g.status !== 'finished');
   const el = document.getElementById('fgRooms');
+  if (!el) return;
   if (!games.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">⚡</div>Нет активных игр</div>'; return; }
+  const myUsername = currentUser ? currentUser.username : '';
   el.innerHTML = games.map(g => {
-    const players = calcChances(g.bets);
-    const canJoin = g.status === 'waiting' && !g.bets.find(b => b.userId === currentUser.id) && g.bets.length < g.maxPlayers;
+    const players = g.players || calcChances(g.bets || []);
+    const isInGame = g.bets && g.bets.some(b => b.username === myUsername);
+    const canJoin = g.status === 'waiting' && !isInGame && g.bets && g.bets.length < g.maxPlayers;
     const waitLeft = g.abandonAt ? Math.max(0, Math.ceil((g.abandonAt - Date.now()) / 1000)) : null;
     const countLeft = g.endsAt ? formatTimer(g.endsAt - Date.now()) : null;
     return `<div class="room-card" ${canJoin ? `onclick="joinFastGame('${g.gameId}')"` : ''} style="${!canJoin ? 'opacity:0.7;cursor:default;' : ''}">
       <div class="room-card-id">${g.gameId}</div>
       <div class="room-card-pot">🏆 ${formatCoins(g.pot)}</div>
       <div class="room-card-info">Ставка: ${g.minBet}–${g.maxBet} 🪙</div>
-      <div class="room-card-info">Игроков: ${g.bets.length} / ${g.maxPlayers}</div>
-      ${waitLeft !== null ? `<div class="room-card-info" style="color:var(--accent);">⏳ Ожидание: ${waitLeft}с</div>` : ''}
-      ${countLeft ? `<div class="room-card-info" style="color:var(--green);">▶ Старт через: ${countLeft}</div>` : ''}
+      <div class="room-card-info">Игроков: ${g.bets ? g.bets.length : 0} / ${g.maxPlayers}</div>
+      ${waitLeft !== null && g.status === 'waiting' ? `<div class="room-card-info" style="color:var(--accent);">⏳ Ожидание: ${waitLeft}с</div>` : ''}
+      ${countLeft && g.status === 'active' ? `<div class="room-card-info" style="color:var(--green);">▶ Старт через: ${countLeft}</div>` : ''}
       <div class="room-card-players">${players.map(p => `<div class="room-player-chip" style="border-color:${p.color}">${escHtml(p.username)}</div>`).join('')}</div>
     </div>`;
   }).join('');
@@ -596,116 +463,72 @@ function renderFastGames() {
 // ═══════════════════════════════════════════════════
 // ── 1VS1 ───────────────────────────────────────────
 // ═══════════════════════════════════════════════════
-function get1vs1Games() { return ls.get(K.OVS, []); }
-
-// Currently active duel being animated
+let vs1Games = [];
 let activeDuelId = null;
 let duelSpinInterval = null;
+
+socket.on('1vs1List', (games) => {
+  vs1Games = games || [];
+  if (!activeDuelId) render1vs1Games();
+});
+
+socket.on('1vs1Finished', (game) => {
+  if (game.winner) {
+    // If we're in the duel screen for this game, show the result
+    if (activeDuelId === game.gameId) {
+      finalizeDuelAnimation(game, game.winner);
+    }
+    showWinner(game.winner.username, game.winner.amount);
+    showToast(`Дуэль завершена! Победитель: ${game.winner.username} 🎉`, 'success');
+    if (activeDuelId === game.gameId) {
+      setTimeout(() => {
+        hideDuelArena();
+        activeDuelId = null;
+        render1vs1Games();
+      }, 6000);
+    }
+  }
+});
 
 function create1vs1() {
   const coins = parseInt(document.getElementById('ovCreateAmount').value);
   if (!coins || coins <= 0) return showToast('Введите сумму ставки в монетах', 'error');
-  const user = getUserById(currentUser.id);
-  if (user.coins < coins) return showToast('Недостаточно монет', 'error');
+  if (!currentUser || currentUser.balance < coins) return showToast('Недостаточно монет', 'error');
 
-  const game = {
-    gameId: 'OV-' + genId(), status: 'waiting',
-    bets: [{ userId: user.id, username: user.username, amount: coins, color: getColor(0) }],
-    pot: coins, createdAt: Date.now(),
-    abandonAt: Date.now() + 120000
-  };
-
-  adjustCoins(user.id, -coins);
-  const games = get1vs1Games();
-  games.push(game);
-  ls.set(K.OVS, games);
+  socket.emit('1vs1Create', { amount: coins });
   document.getElementById('ovCreateAmount').value = '';
-  refreshSidebar();
-  render1vs1Games();
   showToast('Дуэль создана! Ожидаем соперника... (120с)', 'success');
 }
 
 function join1vs1(gameId) {
   if (!confirm('Принять вызов на дуэль?')) return;
-  const games = get1vs1Games();
-  const game = games.find(g => g.gameId === gameId);
+  const game = vs1Games.find(g => g.gameId === gameId);
   if (!game || game.status !== 'waiting') return showToast('Дуэль недоступна', 'error');
-  if (game.bets.find(b => b.userId === currentUser.id)) return showToast('Нельзя вступить в свою дуэль', 'error');
 
-  const user = getUserById(currentUser.id);
-  const cost = game.bets[0].amount;
-  if (user.coins < cost) return showToast('Недостаточно монет', 'error');
+  const cost = game.minBet;
+  if (!currentUser || currentUser.balance < cost) return showToast('Недостаточно монет', 'error');
 
-  game.bets.push({ userId: user.id, username: user.username, amount: cost, color: getColor(1) });
-  game.pot += cost;
-  game.status = 'finishing';
-  game.abandonAt = null;
-  adjustCoins(user.id, -cost);
-
-  const idx = games.findIndex(g => g.gameId === gameId);
-  games[idx] = game;
-  ls.set(K.OVS, games);
-  refreshSidebar();
+  socket.emit('1vs1Join', { gameId });
   activeDuelId = gameId;
   showDuelArena(game);
   showToast('Дуэль началась! 🥊', 'success');
-  startDuelAnimation(game, () => finish1vs1(gameId));
-}
-
-function finish1vs1(gameId) {
-  const games = get1vs1Games();
-  const game = games.find(g => g.gameId === gameId);
-  if (!game) return;
-
-  if (game.bets.length < 2) {
-    // Abandon: refund
-    const b = game.bets[0];
-    if (b) {
-      adjustCoins(b.userId, b.amount);
-      if (b.userId === currentUser.id) {
-        refreshSidebar();
-        showToast('Соперник не появился. Ставка возвращена! 💸', 'info');
-      }
-    }
-    hideDuelArena();
-    ls.set(K.OVS, games.filter(g => g.gameId !== gameId));
-    render1vs1Games();
-    return;
-  }
-
-  const winner = pickWinnerByTickets(game.bets);
-  game.status = 'finished';
-  game.winner = { ...winner, winAmount: game.pot };
-  recordGameResult(game.bets, winner.userId, game.pot);
-  addToHistory({ ...game, type: '1vs1' });
-
-  // Show winner in duel arena
-  finalizeDuelAnimation(game, winner);
-  showWinner(winner.username, game.pot);
-  showToast(`Дуэль завершена! Победитель: ${winner.username} 🎉`, 'success');
-
-  ls.set(K.OVS, games.filter(g => g.gameId !== gameId));
-  refreshSidebar();
-
-  setTimeout(() => {
-    hideDuelArena();
-    activeDuelId = null;
-    render1vs1Games();
-  }, 6000);
+  startDuelAnimation(game, () => {});
 }
 
 // ── 1vs1 Duel Screen UI ────────────────────────────
 function showDuelArena(game) {
   const screen = document.getElementById('duel-screen');
   if (!screen) return;
-  const p1 = game.bets[0];
-  const p2 = game.bets[1] || null;
+  const p1 = game.bets ? game.bets[0] : null;
+  const p2 = game.bets ? game.bets[1] : null;
 
-  document.getElementById('duelLeftAvatar').textContent = p1.username[0].toUpperCase();
-  document.getElementById('duelLeftAvatar').style.background = p1.color;
-  document.getElementById('duelLeftName').textContent = p1.username;
-  document.getElementById('duelLeftBet').textContent = formatCoins(p1.amount);
-  document.getElementById('duelLeftChance').textContent = '50%';
+  if (p1) {
+    document.getElementById('duelLeftAvatar').textContent = p1.username[0].toUpperCase();
+    document.getElementById('duelLeftAvatar').style.background = p1.color;
+    document.getElementById('duelLeftName').textContent = p1.username;
+    document.getElementById('duelLeftBet').textContent = formatCoins(p1.amount);
+    document.getElementById('duelLeftChance').textContent = '50%';
+  }
 
   if (p2) {
     document.getElementById('duelRightAvatar').textContent = p2.username[0].toUpperCase();
@@ -722,7 +545,8 @@ function showDuelArena(game) {
   }
 
   screen.style.display = 'block';
-  document.getElementById('ovRoomsSection').style.display = 'none';
+  const rooms = document.getElementById('ovRoomsSection');
+  if (rooms) rooms.style.display = 'none';
 }
 
 function hideDuelArena() {
@@ -745,8 +569,7 @@ function startDuelAnimation(game, onComplete) {
   const leftEl = document.getElementById('duelLeftAvatar');
   const rightEl = document.getElementById('duelRightAvatar');
   const vsEl = document.getElementById('duelVsText');
-  const p1 = game.bets[0];
-  const p2 = game.bets[1];
+  const p1 = game.bets ? game.bets[0] : null;
 
   if (vsEl) vsEl.classList.add('vs-pulse');
   leftEl.classList.add('avatar-spin');
@@ -759,8 +582,6 @@ function startDuelAnimation(game, onComplete) {
   duelSpinInterval = setInterval(() => {
     const elapsed = Date.now() - startTime;
     const progress = Math.min(elapsed / spinDuration, 1);
-
-    // Slow down as we approach end
     const interval = progress < 0.7 ? 80 : progress < 0.9 ? 150 : 250;
 
     if (frame % Math.ceil(interval / 80) === 0) {
@@ -781,11 +602,10 @@ function startDuelAnimation(game, onComplete) {
       leftEl.classList.remove('avatar-spin');
       rightEl.classList.remove('avatar-spin');
       if (vsEl) vsEl.classList.remove('vs-pulse');
-      // Restore player avatars
-      leftEl.textContent = p1.username[0].toUpperCase();
-      leftEl.style.background = p1.color;
-      rightEl.textContent = p2.username[0].toUpperCase();
-      rightEl.style.background = p2.color;
+      if (p1) {
+        leftEl.textContent = p1.username[0].toUpperCase();
+        leftEl.style.background = p1.color;
+      }
       if (onComplete) onComplete();
     }
   }, 80);
@@ -794,14 +614,20 @@ function startDuelAnimation(game, onComplete) {
 function finalizeDuelAnimation(game, winner) {
   const screen = document.getElementById('duel-screen');
   if (!screen) return;
-  const p1 = game.bets[0];
-  const p2 = game.bets[1];
-  const isP1Winner = winner.userId === p1.userId;
+  const p1 = game.bets ? game.bets[0] : null;
+  const p2 = game.bets ? game.bets[1] : null;
+  if (!p1 || !p2) return;
+  const isP1Winner = winner.userId === p1.userId || winner.username === p1.username;
 
   const leftEl = document.getElementById('duelLeftAvatar');
   const rightEl = document.getElementById('duelRightAvatar');
   const leftChance = document.getElementById('duelLeftChance');
   const rightChance = document.getElementById('duelRightChance');
+
+  leftEl.textContent = p1.username[0].toUpperCase();
+  leftEl.style.background = p1.color;
+  rightEl.textContent = p2.username[0].toUpperCase();
+  rightEl.style.background = p2.color;
 
   if (isP1Winner) {
     leftEl.classList.add('avatar-winner');
@@ -814,29 +640,32 @@ function finalizeDuelAnimation(game, winner) {
     if (rightChance) rightChance.textContent = '🏆 Победа!';
     if (leftChance) leftChance.textContent = '💔 Поражение';
   }
-  document.getElementById('duelTimer').textContent = `+${formatCoins(game.pot)}`;
+  const timerEl = document.getElementById('duelTimer');
+  if (timerEl) timerEl.textContent = `+${formatCoins(game.pot)}`;
 }
 
 function render1vs1Games() {
-  const games = get1vs1Games().filter(g => g.status !== 'finished');
+  const games = vs1Games.filter(g => g.status !== 'finished');
   const el = document.getElementById('ovRooms');
+  if (!el) return;
 
   if (!games.length) {
     el.innerHTML = '<div class="empty-state"><div class="empty-icon">🥊</div>Нет активных дуэлей</div>';
   } else {
     el.innerHTML = games.map(renderOvs1vs1Card).join('');
   }
-
-  renderOvs1vs1History();
 }
 
 function renderOvs1vs1Card(g) {
-  const p1 = g.bets[0];
-  const p2 = g.bets[1] || null;
-  const isMyGame = g.bets.some(b => b.userId === currentUser.id);
-  const isCreator = p1 && p1.userId === currentUser.id;
+  const p1 = g.bets ? g.bets[0] : null;
+  const p2 = g.bets ? g.bets[1] : null;
+  if (!p1) return '';
+
+  const myUsername = currentUser ? currentUser.username : '';
+  const isMyGame = g.bets && g.bets.some(b => b.username === myUsername);
+  const isCreator = p1.username === myUsername;
   const canJoin = !isMyGame && g.status === 'waiting';
-  const bothIn = g.bets.length >= 2;
+  const bothIn = g.bets && g.bets.length >= 2;
   const waitLeft = g.abandonAt ? Math.max(0, Math.ceil((g.abandonAt - Date.now()) / 1000)) : '--';
 
   const leftSlot = `<div class="ovs-player">
@@ -863,7 +692,7 @@ function renderOvs1vs1Card(g) {
   let actionBtn = '';
   if (canJoin) {
     actionBtn = `<button class="btn btn-accent ovs-action-btn" onclick="join1vs1('${g.gameId}')">Присоединиться</button>`;
-  } else if (bothIn) {
+  } else if (bothIn && isMyGame) {
     actionBtn = `<button class="btn btn-accent ovs-action-btn" onclick="viewGame1vs1('${g.gameId}')">Посмотреть игру</button>`;
   } else if (isCreator && g.status === 'waiting') {
     actionBtn = `<div class="ovs-waiting-text">⏳ Ожидание соперника: ${waitLeft}с</div>`;
@@ -876,210 +705,224 @@ function renderOvs1vs1Card(g) {
   </div>`;
 }
 
-function renderOvs1vs1History() {
-  const el = document.getElementById('ovMyHistory');
-  if (!el) return;
-  const history = ls.get(K.HISTORY, [])
-    .filter(g => g.type === '1vs1' && g.bets && g.bets.some(b => b.userId === currentUser.id))
-    .reverse().slice(0, 5);
-  if (!history.length) {
-    el.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div>История пуста</div>';
-    return;
-  }
-  el.innerHTML = history.map(g => {
-    const myBet = g.bets.find(b => b.userId === currentUser.id);
-    const isWon = g.winner && g.winner.userId === currentUser.id;
-    const opponent = g.bets.find(b => b.userId !== currentUser.id);
-    return `<div class="ovs-history-item">
-      <div class="ovs-history-main">
-        <div class="ovs-history-players">vs ${opponent ? escHtml(opponent.username) : '?'}</div>
-        <div class="ovs-history-bet">Ставка: ${formatCoins(myBet ? myBet.amount : 0)}</div>
-      </div>
-      <div class="${isWon ? 'won-badge' : 'lost-badge'}">${isWon ? '+' + formatCoins(g.winner.winAmount) : 'Проигрыш'}</div>
-    </div>`;
-  }).join('');
-}
-
 function viewGame1vs1(gameId) {
-  const game = get1vs1Games().find(g => g.gameId === gameId);
+  const game = vs1Games.find(g => g.gameId === gameId);
   if (!game) return;
   activeDuelId = gameId;
   showDuelArena(game);
-  if (game.bets.length >= 2 && game.status === 'finishing') {
-    document.getElementById('duelTimer').textContent = '⏳ Определяем победителя...';
-  }
 }
-
 
 // ═══════════════════════════════════════════════════
 // ── CHAT ───────────────────────────────────────────
 // ═══════════════════════════════════════════════════
-function getChat() { return ls.get(K.CHAT, []); }
+socket.on('chatMessage', (msg) => {
+  appendChatMessage(msg);
+});
+
+function appendChatMessage(msg) {
+  const container = document.getElementById('chatMessages');
+  if (!container) return;
+  const el = document.createElement('div');
+  el.className = 'chat-msg';
+  const time = new Date(msg.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  el.innerHTML = `<div class="chat-msg-user">${escHtml(msg.username)}</div><div class="chat-msg-text">${escHtml(msg.message)}</div><div class="chat-msg-time">${time}</div>`;
+  container.appendChild(el);
+  // Keep only last 100 messages visible
+  while (container.children.length > 100) container.removeChild(container.firstChild);
+  container.scrollTop = container.scrollHeight;
+}
 
 function sendChatMessage() {
   const input = document.getElementById('chatInput');
   const raw = input.value.trim();
   if (!raw) return;
-  // Sanitize message before storage using escHtml (prevents XSS if rendering context changes)
-  const message = escHtml(raw).slice(0, 500);
-  const chat = getChat();
-  chat.push({ id: genId(), userId: currentUser.id, username: currentUser.username, message, createdAt: Date.now() });
-  if (chat.length > 100) chat.splice(0, chat.length - 100);
-  ls.set(K.CHAT, chat);
+  socket.emit('sendMessage', { message: raw });
   input.value = '';
-  renderChat();
 }
 
 function renderChat() {
   const container = document.getElementById('chatMessages');
-  const chat = getChat().slice(-50);
-  container.innerHTML = '';
-  chat.forEach(msg => {
-    const el = document.createElement('div');
-    el.className = 'chat-msg';
-    const time = new Date(msg.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    el.innerHTML = `<div class="chat-msg-user">${escHtml(msg.username)}</div><div class="chat-msg-text">${escHtml(msg.message)}</div><div class="chat-msg-time">${time}</div>`;
-    container.appendChild(el);
-  });
-  container.scrollTop = container.scrollHeight;
+  if (container) container.innerHTML = '';
 }
 
 // ═══════════════════════════════════════════════════
 // ── PROFILE / LEADERBOARD / HISTORY / PAYOUTS ──────
 // ═══════════════════════════════════════════════════
-function loadProfile() {
-  const user = getUserById(currentUser.id);
-  if (!user) return;
-  document.getElementById('profUsername').textContent = user.username;
-  document.getElementById('profCoins').textContent = formatCoins(user.coins);
-  document.getElementById('profMdl').textContent = coinsToMdl(user.coins).toFixed(2) + ' MDL';
-  document.getElementById('profGames').textContent = user.gamesPlayed || 0;
-  document.getElementById('profWins').textContent = user.gamesWon || 0;
-  document.getElementById('profWinnings').textContent = formatCoins(user.totalWinnings || 0);
+async function loadProfile() {
+  try {
+    const res = await apiFetch('/api/profile');
+    if (!res.ok) return;
+    const user = await res.json();
+    currentUser = { ...currentUser, ...user };
+    updateSidebar(currentUser);
+
+    const el = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
+    el('profUsername', user.username);
+    el('profCoins', formatCoins(user.balance));
+    el('profMdl', coinsToMdl(user.balance).toFixed(2) + ' MDL');
+    el('profGames', user.games_played || 0);
+    el('profWins', user.games_won || 0);
+    el('profWinnings', formatCoins(user.total_winnings || 0));
+  } catch (e) { console.error('loadProfile error:', e); }
 }
 
-function loadLeaderboard() {
-  const users = getUsers().filter(u => !u.isBot).sort((a, b) => (b.totalWinnings || 0) - (a.totalWinnings || 0));
-  const tbody = document.getElementById('leaderboardBody');
-  if (!users.length) {
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:20px;">Нет данных</td></tr>';
-    return;
-  }
-  tbody.innerHTML = users.slice(0, 20).map((u, i) => {
-    const rankClass = i < 3 ? `rank-${i + 1}` : '';
-    const rankText = i < 3 ? ['🥇', '🥈', '🥉'][i] : i + 1;
-    return `<tr><td><span class="rank-badge ${rankClass}">${rankText}</span></td><td>${escHtml(u.username)}</td><td class="text-accent">${formatCoins(u.coins)}</td><td>${u.gamesWon || 0}</td><td>${formatCoins(u.totalWinnings || 0)}</td></tr>`;
-  }).join('');
+async function loadLeaderboard() {
+  try {
+    const res = await fetch('/api/leaderboard');
+    if (!res.ok) return;
+    const users = await res.json();
+    const tbody = document.getElementById('leaderboardBody');
+    if (!tbody) return;
+    if (!users.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:20px;">Нет данных</td></tr>';
+      return;
+    }
+    tbody.innerHTML = users.slice(0, 20).map((u, i) => {
+      const rankClass = i < 3 ? `rank-${i + 1}` : '';
+      const rankText = i < 3 ? ['🥇', '🥈', '🥉'][i] : i + 1;
+      return `<tr><td><span class="rank-badge ${rankClass}">${rankText}</span></td><td>${escHtml(u.username)}</td><td class="text-accent">${formatCoins(u.balance)}</td><td>${u.games_won || 0}</td><td>${formatCoins(u.total_winnings || 0)}</td></tr>`;
+    }).join('');
+  } catch (e) { console.error('loadLeaderboard error:', e); }
 }
 
-function loadHistory() {
-  const history = ls.get(K.HISTORY, []).filter(g => g.bets && g.bets.some(b => b.userId === currentUser.id)).reverse().slice(0, 50);
-  const tbody = document.getElementById('historyBody');
-  if (!history.length) {
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:20px;">История пуста</td></tr>';
-    return;
-  }
-  tbody.innerHTML = history.map(g => {
-    const myBet = g.bets.find(b => b.userId === currentUser.id);
-    const isWon = g.winner && g.winner.userId === currentUser.id;
-    const result = isWon ? `<span class="won-badge">+${formatCoins(g.winner.winAmount)}</span>` : `<span class="lost-badge">Проигрыш</span>`;
-    return `<tr>
-      <td style="font-size:0.75rem;color:var(--text-muted);">${g.gameId}</td>
-      <td>${g.type || '-'}</td>
-      <td>${myBet ? formatCoins(myBet.amount) : '-'}</td>
-      <td>${result}</td>
-      <td style="color:var(--text-muted);font-size:0.78rem;">${new Date(g.createdAt).toLocaleDateString('ru-RU')}</td>
-    </tr>`;
-  }).join('');
+async function loadHistory() {
+  try {
+    if (!currentUser) return;
+    const res = await apiFetch(`/api/bets/user/${currentUser.id}`);
+    if (!res.ok) return;
+    const bets = await res.json();
+    const tbody = document.getElementById('historyBody');
+    if (!tbody) return;
+    if (!bets.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:20px;">История пуста</td></tr>';
+      return;
+    }
+    tbody.innerHTML = bets.slice(0, 50).map(b => {
+      const isWon = b.result === 'win';
+      const result = isWon
+        ? `<span class="won-badge">+${formatCoins(b.amount + (b.profit || 0))}</span>`
+        : `<span class="lost-badge">Проигрыш</span>`;
+      return `<tr>
+        <td style="font-size:0.75rem;color:var(--text-muted);">GAME#${b.game_id}</td>
+        <td>${b.game_type || '-'}</td>
+        <td>${formatCoins(b.amount)}</td>
+        <td>${result}</td>
+        <td style="color:var(--text-muted);font-size:0.78rem;">${new Date(b.created_at).toLocaleDateString('ru-RU')}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) { console.error('loadHistory error:', e); }
 }
 
-function loadPayouts() {
-  const wins = ls.get(K.HISTORY, []).filter(g => g.winner && g.winner.userId === currentUser.id).reverse().slice(0, 20);
-  const el = document.getElementById('payoutsContent');
-  if (!wins.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">💰</div>Нет данных о выплатах</div>'; return; }
-  el.innerHTML = wins.map(g => `
-    <div class="player-row" style="margin-bottom:8px;">
-      <div class="player-name">${g.type || 'Игра'} #${g.gameId}</div>
-      <div class="won-badge">+${formatCoins(g.winner.winAmount)}</div>
-      <div style="color:var(--text-muted);font-size:0.78rem;margin-left:auto;">${new Date(g.createdAt).toLocaleDateString('ru-RU')}</div>
-    </div>`).join('');
+async function loadPayouts() {
+  try {
+    if (!currentUser) return;
+    const res = await apiFetch(`/api/bets/user/${currentUser.id}`);
+    if (!res.ok) return;
+    const bets = await res.json();
+    const wins = bets.filter(b => b.result === 'win');
+    const el = document.getElementById('payoutsContent');
+    if (!el) return;
+    if (!wins.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">💰</div>Нет данных о выплатах</div>'; return; }
+    el.innerHTML = wins.map(b => `
+      <div class="player-row" style="margin-bottom:8px;">
+        <div class="player-name">${b.game_type || 'Игра'} #${b.game_id}</div>
+        <div class="won-badge">+${formatCoins(b.amount + (b.profit || 0))}</div>
+        <div style="color:var(--text-muted);font-size:0.78rem;margin-left:auto;">${new Date(b.created_at).toLocaleDateString('ru-RU')}</div>
+      </div>`).join('');
+  } catch (e) { console.error('loadPayouts error:', e); }
 }
 
 // ═══════════════════════════════════════════════════
 // ── FREE COINS / PROMO / DEPOSIT / TRANSFER ─────────
 // ═══════════════════════════════════════════════════
-function getFreeCoins() {
-  const tsKey = `em_free_ts_${currentUser.id}`;
-  const lastTs = parseInt(localStorage.getItem(tsKey) || '0');
-  const hourMs = 60 * 60 * 1000;
-  if (Date.now() - lastTs < hourMs) {
-    const remaining = Math.ceil((hourMs - (Date.now() - lastTs)) / 60000);
-    return showToast(`Следующие монеты через ${remaining} мин.`, 'error');
+async function getFreeCoins() {
+  try {
+    const res = await apiFetch('/api/balance/free', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) {
+      return showToast(data.error || 'Ошибка', 'error');
+    }
+    if (currentUser) {
+      currentUser.balance = data.balance;
+      updateSidebar(currentUser);
+    }
+    showToast('+50 монет получено! 🎁', 'success');
+  } catch (e) {
+    showToast('Ошибка соединения с сервером', 'error');
   }
-  adjustCoins(currentUser.id, 50);
-  localStorage.setItem(tsKey, String(Date.now()));
-  refreshSidebar();
-  showToast('+50 монет получено! 🎁', 'success');
 }
 
-function applyPromo() {
+async function applyPromo() {
   const code = document.getElementById('promoInput').value.trim().toUpperCase();
   if (!code) return showToast('Введите промокод', 'error');
-  const usedKey = `em_promos_${currentUser.id}`;
-  const usedCodes = ls.get(usedKey, []);
-  if (usedCodes.includes(code)) return showToast('Вы уже использовали этот промокод', 'error');
-  const amount = PROMO_CODES[code];
-  if (!amount) return showToast('Неверный промокод', 'error');
-  adjustCoins(currentUser.id, amount);
-  usedCodes.push(code);
-  ls.set(usedKey, usedCodes);
-  document.getElementById('promoInput').value = '';
-  refreshSidebar();
-  showToast(`Промокод ${code} активирован! +${amount} монет 🎉`, 'success');
+
+  try {
+    const res = await apiFetch(`/api/promo/${encodeURIComponent(code)}/use`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) {
+      return showToast(data.error || 'Неверный промокод', 'error');
+    }
+    if (currentUser) {
+      currentUser.balance = data.balance;
+      updateSidebar(currentUser);
+    }
+    document.getElementById('promoInput').value = '';
+    showToast(`Промокод ${code} активирован! 🎉`, 'success');
+  } catch (e) {
+    showToast('Ошибка соединения с сервером', 'error');
+  }
 }
 
 function depositCoins() {
   const mdl = parseFloat(document.getElementById('depositAmount').value);
   if (!mdl || mdl < 10) return showToast('Минимальная сумма: 10 MDL', 'error');
-  const coins = Math.round(mdl * COINS_PER_MDL);
-  adjustCoins(currentUser.id, coins);
-  document.getElementById('depositAmount').value = '';
-  refreshSidebar();
-  showToast(`+${coins} монет зачислено (${mdl} MDL)! ✅`, 'success');
+  // In production this would go through a payment processor
+  showToast('Функция пополнения будет доступна после запуска платёжной системы. Обратитесь к администратору.', 'info');
 }
 
-function transferCoins() {
+async function transferCoins() {
   const toUsername = document.getElementById('transferTo').value.trim();
   const amount = parseInt(document.getElementById('transferAmount').value);
   if (!toUsername) return showToast('Введите ник получателя', 'error');
   if (!amount || amount <= 0) return showToast('Введите сумму перевода', 'error');
-  const sender = getUserById(currentUser.id);
-  if (sender.coins < amount) return showToast('Недостаточно монет', 'error');
-  const users = getUsers();
-  const recipient = users.find(u => u.username.toLowerCase() === toUsername.toLowerCase() && !u.isBot);
-  if (!recipient) return showToast('Пользователь не найден', 'error');
-  if (recipient.id === currentUser.id) return showToast('Нельзя переводить самому себе', 'error');
-  adjustCoins(currentUser.id, -amount);
-  adjustCoins(recipient.id, amount);
-  document.getElementById('transferTo').value = '';
-  document.getElementById('transferAmount').value = '';
-  refreshSidebar();
-  showToast(`Переведено ${formatCoins(amount)} → ${recipient.username}! ✅`, 'success');
+  if (!currentUser || currentUser.balance < amount) return showToast('Недостаточно монет', 'error');
+
+  try {
+    const res = await apiFetch('/api/balance/transfer', {
+      method: 'POST',
+      body: JSON.stringify({ to_username: toUsername, amount })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return showToast(data.error || 'Ошибка перевода', 'error');
+    }
+    currentUser.balance = data.balance;
+    updateSidebar(currentUser);
+    document.getElementById('transferTo').value = '';
+    document.getElementById('transferAmount').value = '';
+    showToast(`Переведено ${formatCoins(amount)} → ${toUsername}! ✅`, 'success');
+  } catch (e) {
+    showToast('Ошибка соединения с сервером', 'error');
+  }
 }
 
 // ═══════════════════════════════════════════════════
 // ── REFERRAL ───────────────────────────────────────
 // ═══════════════════════════════════════════════════
 function loadReferral() {
-  const user = getUserById(currentUser.id);
-  const code = user?.referralCode || '-';
-  document.getElementById('refCode').textContent = code;
-  const basePath = window.location.pathname.replace(/\/[^/]*$/, '');
-  document.getElementById('refLink').textContent = window.location.origin + basePath + '/register.html?ref=' + code;
+  const code = currentUser?.referral_code || '-';
+  const codeEl = document.getElementById('refCode');
+  if (codeEl) codeEl.textContent = code;
+  const linkEl = document.getElementById('refLink');
+  if (linkEl) {
+    const basePath = window.location.pathname.replace(/\/[^/]*$/, '');
+    linkEl.textContent = window.location.origin + basePath + '/register.html?ref=' + code;
+  }
 }
 
 function copyRefCode() {
-  const code = document.getElementById('refCode').textContent;
+  const code = document.getElementById('refCode')?.textContent;
+  if (!code) return;
   if (navigator.clipboard) {
     navigator.clipboard.writeText(code).then(() => showToast('Код скопирован!', 'success'));
   } else {
@@ -1088,99 +931,51 @@ function copyRefCode() {
 }
 
 // ═══════════════════════════════════════════════════
-// ── GAME LOOP (1-second tick) ──────────────────────
+// ── GAME LOOP (1-second tick for timers) ───────────
 // ═══════════════════════════════════════════════════
 let tickCount = 0;
 
 function gameTick() {
   tickCount++;
 
-  // ── Jackpot ──
-  const jp = getJackpot();
-  if (!jp) { initJackpot(); }
-  else if (jp.status === 'active') {
+  // Update jackpot timer display
+  if (jackpotGame && jackpotGame.status === 'active' && jackpotGame.endsAt) {
     const el = document.getElementById('jpTimer');
-    if (el) el.textContent = formatTimer(jp.endsAt - Date.now());
-    if (Date.now() >= jp.endsAt) {
-      const fresh = getJackpot();
-      if (fresh && fresh.status === 'active') finishJackpot(fresh);
-    }
-  } else if (jp.status === 'waiting' && jp.bets.length === 1) {
-    // Show waiting message in timer
+    if (el) el.textContent = formatTimer(jackpotGame.endsAt - Date.now());
+  } else if (jackpotGame && jackpotGame.status === 'waiting' && jackpotGame.bets && jackpotGame.bets.length > 0) {
     const el = document.getElementById('jpTimer');
     if (el) el.textContent = 'Ждём игрока...';
   }
 
-  // ── Battle ──
-  const bt = getBattle();
-  if (!bt) { initBattle(); }
-  else if (bt.status === 'active') {
+  // Update battle timer display
+  if (battleGame && battleGame.status === 'active' && battleGame.endsAt) {
     const el = document.getElementById('bgTimer');
-    if (el) el.textContent = formatTimer(bt.endsAt - Date.now());
-    if (Date.now() >= bt.endsAt) {
-      const fresh = getBattle();
-      if (fresh && fresh.status === 'active') finishBattle(fresh);
-    }
-  } else if (bt.status === 'waiting' && bt.bets.length > 0) {
-    const hasBoth = bt.bets.some(b => b.side === 'blue') && bt.bets.some(b => b.side === 'red');
-    const el = document.getElementById('bgTimer');
-    if (el) el.textContent = hasBoth ? 'Ждём...' : 'Ждём игрока...';
+    if (el) el.textContent = formatTimer(battleGame.endsAt - Date.now());
   }
 
-  // ── Fast Game: abandon single-player games on timeout ──
-  if (tickCount % 5 === 0) {
-    const fastGames = getFastGames();
-    let changed = false;
-    fastGames.forEach(g => {
-      if (g.status === 'waiting' && g.abandonAt && Date.now() >= g.abandonAt && g.bets.length < 2) {
-        finishFastGame(g.gameId);
-        changed = true;
-      } else if (g.status === 'active' && g.endsAt && Date.now() >= g.endsAt) {
-        g.status = 'finishing';
-        const idx = fastGames.findIndex(x => x.gameId === g.gameId);
-        fastGames[idx] = g;
-        ls.set(K.FAST, fastGames);
-        setTimeout(() => finishFastGame(g.gameId), 1500);
-        changed = true;
-      }
-    });
-    if (changed) renderFastGames();
-  }
-
-  // ── 1vs1: abandon single-player duels on timeout ──
-  if (tickCount % 5 === 0) {
-    const ovGames = get1vs1Games();
-    ovGames.forEach(g => {
-      if (g.status === 'waiting' && g.abandonAt && Date.now() >= g.abandonAt && g.bets.length < 2) {
-        finish1vs1(g.gameId);
-      }
-    });
-    // Update waiting duel screen timer if active
-    if (activeDuelId) {
-      const activeG = get1vs1Games().find(g => g.gameId === activeDuelId);
-      if (activeG && activeG.abandonAt) {
-        const waitLeft = Math.max(0, Math.ceil((activeG.abandonAt - Date.now()) / 1000));
-        const timerEl = document.getElementById('duelTimer');
-        if (timerEl) timerEl.textContent = `⏳ Ожидание соперника: ${waitLeft}с`;
-      }
-    }
-  }
-
-  // ── Update Fast Game countdowns ──
+  // Update fast game countdowns
   if (tickCount % 2 === 0) {
     const fgView = document.getElementById('game-fast');
     if (fgView && fgView.classList.contains('active')) renderFastGames();
   }
 
-  // ── Update 1vs1 game cards (when list is visible) ──
+  // Update 1vs1 game cards (countdown display)
   if (tickCount % 2 === 0) {
     const ovView = document.getElementById('game-1vs1');
     if (ovView && ovView.classList.contains('active')) {
       const duelScreen = document.getElementById('duel-screen');
       const isScreenVisible = duelScreen && duelScreen.style.display !== 'none';
-      if (!isScreenVisible) {
-        render1vs1Games();
-      }
+      if (!isScreenVisible && !activeDuelId) render1vs1Games();
+    }
+  }
+
+  // Update duel screen timer if waiting
+  if (activeDuelId) {
+    const activeG = vs1Games.find(g => g.gameId === activeDuelId);
+    if (activeG && activeG.status === 'waiting' && activeG.abandonAt) {
+      const waitLeft = Math.max(0, Math.ceil((activeG.abandonAt - Date.now()) / 1000));
+      const timerEl = document.getElementById('duelTimer');
+      if (timerEl) timerEl.textContent = `⏳ Ожидание соперника: ${waitLeft}с`;
     }
   }
 }
@@ -1188,21 +983,36 @@ function gameTick() {
 // ══════════════════════════════════════════════════
 // ── INIT ──────────────────────────────────────────
 // ══════════════════════════════════════════════════
-(function init() {
-  const user = getUserById(currentUser.id);
-  if (!user) { localStorage.removeItem(K.CUR_UID); window.location.href = 'login.html'; return; }
-  currentUser = user;
+(async function init() {
+  // Try to load user from cached data first
+  try {
+    const cached = JSON.parse(localStorage.getItem('em_user') || 'null');
+    if (cached) {
+      currentUser = cached;
+      updateSidebar(currentUser);
+    }
+  } catch (e) { /* ignore */ }
 
-  updateSidebar(user);
-
-  if (!getJackpot()) initJackpot();
-  if (!getBattle()) initBattle();
-
-  renderJackpot(getJackpot());
-  renderBattle(getBattle());
-  renderFastGames();
-  render1vs1Games();
-  renderChat();
+  // Verify token and get fresh user data from server
+  try {
+    const res = await apiFetch('/api/profile');
+    if (!res.ok) {
+      localStorage.removeItem('em_token');
+      localStorage.removeItem('em_user');
+      window.location.href = 'login.html';
+      return;
+    }
+    const user = await res.json();
+    currentUser = user;
+    localStorage.setItem('em_user', JSON.stringify(user));
+    updateSidebar(user);
+  } catch (e) {
+    // If server unavailable but we have a cached user, continue offline
+    if (!currentUser) {
+      window.location.href = 'login.html';
+      return;
+    }
+  }
 
   const urlRef = new URLSearchParams(window.location.search).get('ref');
   if (urlRef) localStorage.setItem('pendingRef', urlRef);

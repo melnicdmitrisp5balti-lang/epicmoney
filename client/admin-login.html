@@ -53,81 +53,46 @@
 
   <script>
     // Redirect if already logged in as admin
-    if (localStorage.getItem('em_admin_uid')) {
+    if (localStorage.getItem('em_admin_token')) {
       window.location.href = 'admin.html';
     }
 
-    // WARNING: Weak hash for demo only.
-    function hashPass(str) {
-      let h = 5381;
-      for (let i = 0; i < str.length; i++) h = (((h << 5) + h) ^ str.charCodeAt(i)) >>> 0;
-      return h.toString(16);
-    }
-
-    function genId() {
-      return Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-    }
-
-    // Ensure admin account exists
-    (function ensureAdmin() {
-      const users = JSON.parse(localStorage.getItem('em_users') || '[]');
-      if (!users.find(u => u.username === 'admin')) {
-        users.push({
-          id: 'admin-user',
-          username: 'admin',
-          email: 'admin@epicmoney.local',
-          passwordHash: hashPass('admin123'),
-          coins: 999999,
-          isAdmin: true,
-          gamesPlayed: 0,
-          gamesWon: 0,
-          totalWinnings: 0,
-          referralCode: 'ADMIN000',
-          createdAt: Date.now(),
-          status: 'active'
-        });
-        localStorage.setItem('em_users', JSON.stringify(users));
-      } else {
-        // Make sure existing admin user has isAdmin flag
-        const idx = users.findIndex(u => u.username === 'admin');
-        if (!users[idx].isAdmin) {
-          users[idx].isAdmin = true;
-          localStorage.setItem('em_users', JSON.stringify(users));
-        }
-      }
-    })();
-
-    document.getElementById('adminLoginForm').addEventListener('submit', (e) => {
+    document.getElementById('adminLoginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
+      const btn = document.getElementById('loginBtn');
       const errEl = document.getElementById('errorMsg');
       errEl.style.display = 'none';
+      btn.disabled = true;
+      btn.textContent = 'Вход...';
 
       const username = document.getElementById('username').value.trim();
       const password = document.getElementById('password').value;
 
-      const users = JSON.parse(localStorage.getItem('em_users') || '[]');
-      const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
+      try {
+        const res = await fetch('/api/auth/admin-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
 
-      if (!user || user.passwordHash !== hashPass(password)) {
-        errEl.textContent = 'Неверный логин или пароль';
+        if (!res.ok) {
+          errEl.textContent = data.error || 'Неверный логин или пароль';
+          errEl.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = 'Войти в панель';
+          return;
+        }
+
+        localStorage.setItem('em_admin_token', data.token);
+        localStorage.setItem('em_admin_info', JSON.stringify(data.admin));
+        window.location.href = 'admin.html';
+      } catch (err) {
+        errEl.textContent = 'Ошибка соединения с сервером';
         errEl.style.display = 'block';
-        return;
+        btn.disabled = false;
+        btn.textContent = 'Войти в панель';
       }
-
-      if (!user.isAdmin) {
-        errEl.textContent = 'У вас нет прав администратора';
-        errEl.style.display = 'block';
-        return;
-      }
-
-      if (user.status === 'banned') {
-        errEl.textContent = 'Аккаунт заблокирован';
-        errEl.style.display = 'block';
-        return;
-      }
-
-      localStorage.setItem('em_admin_uid', user.id);
-      window.location.href = 'admin.html';
     });
   </script>
 </body>

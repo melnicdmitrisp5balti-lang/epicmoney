@@ -41,7 +41,7 @@
       <button type="submit" class="btn btn-accent btn-full" id="loginBtn">Войти</button>
     </form>
     <div class="demo-hint">
-      Демо-аккаунт: <strong>demo</strong> / <strong>demo123</strong>
+      Нет аккаунта? Зарегистрируйтесь и получите <strong>100 монет</strong> бесплатно!
     </div>
     <div class="auth-footer">
       Нет аккаунта? <a href="register.html">Зарегистрироваться</a>
@@ -49,58 +49,44 @@
   </div>
   <script>
     // Redirect if already logged in
-    if (localStorage.getItem('em_current_uid')) window.location.href = 'index.html';
+    if (localStorage.getItem('em_token')) window.location.href = 'index.html';
 
-    // WARNING: This is a weak hash for local demo purposes only.
-    // Use a proper server-side solution with bcrypt for real authentication.
-    function hashPass(str) {
-      let h = 5381;
-      for (let i = 0; i < str.length; i++) h = (((h << 5) + h) ^ str.charCodeAt(i)) >>> 0;
-      return h.toString(16);
-    }
-
-    function genId() {
-      return Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-    }
-
-    // Ensure demo account exists
-    (function ensureDemo() {
-      const users = JSON.parse(localStorage.getItem('em_users') || '[]');
-      if (!users.find(u => u.username === 'demo')) {
-        users.push({
-          id: 'demo-user',
-          username: 'demo',
-          passwordHash: hashPass('demo123'),
-          coins: 1000,
-          gamesPlayed: 0,
-          gamesWon: 0,
-          totalWinnings: 0,
-          referralCode: 'DEMO0000',
-          createdAt: Date.now()
-        });
-        localStorage.setItem('em_users', JSON.stringify(users));
-      }
-    })();
-
-    document.getElementById('loginForm').addEventListener('submit', (e) => {
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
+      const btn = document.getElementById('loginBtn');
       const errEl = document.getElementById('errorMsg');
       errEl.style.display = 'none';
+      btn.disabled = true;
+      btn.textContent = 'Вход...';
 
       const username = document.getElementById('username').value.trim();
       const password = document.getElementById('password').value;
 
-      const users = JSON.parse(localStorage.getItem('em_users') || '[]');
-      const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
 
-      if (!user || user.passwordHash !== hashPass(password)) {
-        errEl.textContent = 'Неверный логин или пароль';
+        if (!res.ok) {
+          errEl.textContent = data.error || 'Ошибка входа';
+          errEl.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = 'Войти';
+          return;
+        }
+
+        localStorage.setItem('em_token', data.token);
+        localStorage.setItem('em_user', JSON.stringify(data.user));
+        window.location.href = 'index.html';
+      } catch (err) {
+        errEl.textContent = 'Ошибка соединения с сервером';
         errEl.style.display = 'block';
-        return;
+        btn.disabled = false;
+        btn.textContent = 'Войти';
       }
-
-      localStorage.setItem('em_current_uid', user.id);
-      window.location.href = 'index.html';
     });
   </script>
 </body>
