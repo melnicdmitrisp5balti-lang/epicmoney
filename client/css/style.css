@@ -605,3 +605,103 @@ html, body {
 .ovs-history-main { display: flex; flex-direction: column; gap: 2px; }
 .ovs-history-players { font-size: 0.88rem; font-weight: 600; color: var(--text); }
 .ovs-history-bet { font-size: 0.78rem; color: var(--text-muted); }
+
+/* ─── Fast Game Cards ────────────────────────────── */
+.fg-card-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 8px;
+}
+.fg-card-id {
+  font-size: 0.78rem; color: var(--text-muted); font-weight: 600;
+}
+.fg-card-count {
+  font-size: 0.78rem; font-weight: 700; color: var(--accent);
+  background: rgba(255,215,0,0.12); border-radius: 8px; padding: 2px 8px;
+}
+.fg-card-bet-range {
+  font-size: 0.78rem; color: var(--text-muted); margin-bottom: 12px;
+}
+.fg-card-players {
+  display: flex; gap: 8px; margin-bottom: 14px; justify-content: space-around;
+}
+.fg-card-player {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 4px; flex: 1; min-width: 0;
+}
+.fg-card-player-empty { opacity: 0.4; }
+.fg-card-avatar {
+  width: 48px; height: 48px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.2rem; font-weight: 800; color: #0d0f14;
+  border: 2px solid var(--border);
+}
+.fg-card-avatar-empty {
+  background: #2a2f3e !important;
+  color: var(--text-dim);
+  border-style: dashed;
+}
+.fg-card-player-name {
+  font-size: 0.76rem; font-weight: 700; color: var(--text);
+  text-align: center; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; max-width: 70px;
+}
+.fg-card-player-chance {
+  font-size: 0.72rem; font-weight: 700; color: var(--accent);
+}
+
+/* ─── Fast Game Arena ────────────────────────────── */
+.fg-arena-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 16px;
+}
+.fg-arena-id {
+  font-size: 0.82rem; color: var(--text-muted); font-weight: 600;
+}
+.fg-arena-pot {
+  font-size: 1.1rem; font-weight: 700; color: var(--accent);
+}
+.fg-arena-players {
+  display: flex; align-items: flex-start; justify-content: center;
+  gap: 12px; width: 100%; margin-bottom: 20px; flex-wrap: wrap;
+}
+.fg-arena-slot {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 8px; flex: 1; max-width: 120px;
+}
+.fg-arena-slot-empty { opacity: 0.4; }
+.fg-arena-avatar {
+  width: 80px; height: 80px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), #ff8c00);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.8rem; font-weight: 800; color: #0d0f14;
+  border: 3px solid var(--border);
+  transition: all 0.2s; user-select: none;
+}
+.fg-arena-avatar.avatar-spin {
+  animation: duelSpin 0.15s linear infinite;
+}
+.fg-arena-avatar.avatar-winner {
+  border-color: var(--accent);
+  box-shadow: 0 0 24px rgba(255,215,0,0.6);
+  animation: winnerGlow 1s ease-in-out infinite alternate;
+}
+.fg-arena-avatar.avatar-loser {
+  filter: grayscale(0.7) opacity(0.5);
+  border-color: var(--red);
+}
+.fg-arena-avatar-empty {
+  background: #2a2f3e !important;
+  color: var(--text-dim);
+  border-style: dashed;
+}
+.fg-arena-name {
+  font-weight: 700; font-size: 0.9rem; color: var(--text);
+  text-align: center; max-width: 110px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fg-arena-chance {
+  font-size: 0.82rem; font-weight: 700; color: var(--accent);
+}
+.fg-arena-bet {
+  font-size: 0.78rem; color: var(--text-muted); text-align: center;
+}
